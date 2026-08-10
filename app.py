@@ -67,7 +67,49 @@ def webhook():
             "error": str(erro)
         }), 200
 
+@app.route("/status-pix/<order_id>", methods=["GET"])
+def status_pix(order_id):
+    try:
+        if not MP_ACCESS_TOKEN:
+            return jsonify({
+                "ok": False,
+                "erro": "MP_ACCESS_TOKEN nao configurado"
+            }), 500
 
+        url = f"https://api.mercadopago.com/v1/orders/{order_id}"
+
+        headers = {
+            "Authorization": f"Bearer {MP_ACCESS_TOKEN}"
+        }
+
+        resposta = requests.get(
+            url,
+            headers=headers,
+            timeout=20
+        )
+
+        dados = resposta.json()
+
+        if resposta.status_code != 200:
+            return jsonify({
+                "ok": False,
+                "status_code": resposta.status_code,
+                "mercado_pago": dados
+            }), resposta.status_code
+
+        status = dados.get("status", "")
+
+        return jsonify({
+            "ok": True,
+            "status": status,
+            "pago": status == "processed"
+        }), 200
+
+    except Exception as erro:
+        return jsonify({
+            "ok": False,
+            "erro": str(erro)
+        }), 500
 @app.route("/criar-pix", methods=["GET"])
 def criar_pix():
     try:
@@ -255,7 +297,7 @@ alt="QR Code PIX"
 Copiar código PIX
 </button>
 
-<div class="status">
+<div class="status" id="status-pagamento">
 Aguardando pagamento...
 </div>
 
@@ -273,6 +315,33 @@ function copiarPix() {{
         alert("Código PIX copiado!");
     }});
 }}
+
+async function verificarPagamento() {{
+    try {{
+        const resposta = await fetch("/status-pix/{order_id}");
+        const dados = await resposta.json();
+
+        const statusTela = document.getElementById("status-pagamento");
+
+        if (dados.ok && dados.pago) {{
+            statusTela.textContent = "Pagamento aprovado!";
+
+            if (timerPagamento) {{
+                clearInterval(timerPagamento);
+            }}
+        }} else if (dados.ok) {{
+            statusTela.textContent = "Aguardando pagamento...";
+        }} else {{
+            console.log("Erro ao consultar pagamento:", dados);
+        }}
+
+    }} catch (erro) {{
+        console.log("Erro na consulta do pagamento:", erro);
+    }}
+}}
+
+let timerPagamento = setInterval(verificarPagamento, 5000);
+verificarPagamento();
 </script>
 
 </body>
