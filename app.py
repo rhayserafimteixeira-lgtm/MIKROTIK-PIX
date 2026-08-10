@@ -90,10 +90,6 @@ def criar_pix():
             "processing_mode": "automatic",
             "external_reference": f"mikrotik_{uuid.uuid4().hex[:10]}",
             "total_amount": "5.00",
-            "payer": {
-                "email": "test_user_br@testuser.com",
-                "first_name": "APRO"
-            },
             "transactions": {
                 "payments": [
                     {
