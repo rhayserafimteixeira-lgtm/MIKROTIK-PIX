@@ -1,4 +1,91 @@
-import os
+@app.route("/criar-pix", methods=["GET"])
+def criar_pix():
+    try:
+        if not MP_ACCESS_TOKEN:
+            return jsonify({
+                "ok": False,
+                "erro": "MP_ACCESS_TOKEN não configurado"
+            }), 500
+
+        url = "https://api.mercadopago.com/v1/orders"
+
+        headers = {
+            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+            "Content-Type": "application/json"
+        }
+
+        pedido = {
+            "type": "online",
+            "external_reference": "teste_mikrotik_pix",
+            "total_amount": "5.00",
+            "payer": {
+                "email": "test_user_br@testuser.com",
+                "first_name": "APRO"
+            },
+            "transactions": {
+                "payments": [
+                    {
+                        "amount": "5.00",
+                        "payment_method": {
+                            "id": "pix",
+                            "type": "bank_transfer"
+                        }
+                    }
+                ]
+            }
+        }
+
+        resposta = requests.post(
+            url,
+            headers=headers,
+            json=pedido,
+            timeout=20
+        )
+
+        dados = resposta.json()
+
+        print("Resposta criação PIX:", dados, flush=True)
+
+        if resposta.status_code not in (200, 201):
+            return jsonify({
+                "ok": False,
+                "status_code": resposta.status_code,
+                "mercado_pago": dados
+            }), resposta.status_code
+
+        payments = (
+            dados.get("transactions", {})
+                .get("payments", [])
+        )
+
+        if not payments:
+            return jsonify({
+                "ok": False,
+                "erro": "Order criada sem dados de pagamento",
+                "order": dados
+            }), 500
+
+        pagamento = payments[0]
+        metodo = pagamento.get("payment_method", {})
+
+        return jsonify({
+            "ok": True,
+            "order_id": dados.get("id"),
+            "status": dados.get("status"),
+            "status_detail": dados.get("status_detail"),
+            "payment_id": pagamento.get("id"),
+            "qr_code": metodo.get("qr_code"),
+            "qr_code_base64": metodo.get("qr_code_base64"),
+            "ticket_url": metodo.get("ticket_url")
+        }), 200
+
+    except Exception as erro:
+        print("Erro ao criar PIX:", str(erro), flush=True)
+
+        return jsonify({
+            "ok": False,
+            "erro": str(erro)
+        }), 500import os
 import requests
 from flask import Flask, request, jsonify
 
