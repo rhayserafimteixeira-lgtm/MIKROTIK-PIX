@@ -1,5 +1,6 @@
 import os
 import requests
+import uuid
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -111,7 +112,8 @@ def criar_pix():
 
         headers = {
             "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "X-idempotency-key": str(uuid.uuid4())
         }
 
         pedido = {
