@@ -1,6 +1,6 @@
 import os
-import requests
 import uuid
+import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -40,170 +40,18 @@ def webhook():
                 f"Evento ORDER recebido: {data_id}",
                 flush=True
             )
-           qr_code = metodo.get("qr_code")
-qr_code_base64 = metodo.get("qr_code_base64")
-ticket_url = metodo.get("ticket_url")
-
-pagina = f"""
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Internet via PIX</title>
-
-    <style>
-        body {{
-            font-family: Arial, sans-serif;
-            background: #f2f4f7;
-            margin: 0;
-            padding: 20px;
-            text-align: center;
-        }}
-
-        .caixa {{
-            max-width: 420px;
-            margin: 30px auto;
-            background: white;
-            padding: 25px;
-            border-radius: 18px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
-        }}
-
-        h1 {{
-            margin-bottom: 5px;
-        }}
-
-        .valor {{
-            font-size: 30px;
-            font-weight: bold;
-            margin: 15px 0;
-        }}
-
-        img {{
-            width: 260px;
-            max-width: 90%;
-            margin: 15px 0;
-        }}
-
-        textarea {{
-            width: 95%;
-            height: 100px;
-            margin-top: 10px;
-            padding: 10px;
-            border-radius: 8px;
-        }}
-
-        button {{
-            width: 100%;
-            padding: 15px;
-            margin-top: 12px;
-            border: none;
-            border-radius: 10px;
-            font-size: 17px;
-            cursor: pointer;
-        }}
-
-        .copiar {{
-            background: #00a650;
-            color: white;
-        }}
-
-        .status {{
-            margin-top: 20px;
-            font-weight: bold;
-        }}
-    </style>
-</head>
-
-<body>
-
-<div class="caixa">
-
-    <h1>Internet via PIX</h1>
-
-    <p>Plano selecionado</p>
-
-    <div class="valor">
-        R$ 5,00
-    </div>
-
-    <p>Escaneie o QR Code:</p>
-
-    <img
-        src="data:image/png;base64,{qr_code_base64}"
-        alt="QR Code PIX"
-    >
-
-    <p><strong>PIX Copia e Cola</strong></p>
-
-    <textarea id="pix" readonly>{qr_code}</textarea>
-
-    <button class="copiar" onclick="copiarPix()">
-        Copiar código PIX
-    </button>
-
-    <div class="status">
-        ⏳ Aguardando pagamento...
-    </div>
-
-</div>
-
-<script>
-function copiarPix() {{
-    const campo = document.getElementById("pix");
-
-    campo.select();
-    campo.setSelectionRange(0, 99999);
-
-    navigator.clipboard.writeText(campo.value);
-
-    alert("Código PIX copiado!");
-}}
-</script>
-
-</body>
-</html>
-"""
-
-return pagina, 200
-
-        if tipo == "payment":
-            if not MP_ACCESS_TOKEN:
-                return jsonify({
-                    "status": "received",
-                    "message": "Access Token nao configurado"
-                }), 200
-
-            url = f"https://api.mercadopago.com/v1/payments/{data_id}"
-
-            resposta = requests.get(
-                url,
-                headers={
-                    "Authorization": f"Bearer {MP_ACCESS_TOKEN}"
-                },
-                timeout=15
-            )
-
-            if resposta.status_code == 404:
-                return jsonify({
-                    "status": "received",
-                    "message": "Notificacao de teste recebida"
-                }), 200
-
-            resposta.raise_for_status()
-
-            pagamento = resposta.json()
-
-            if pagamento.get("status") == "approved":
-                print(
-                    f"PIX APROVADO - pagamento {data_id}",
-                    flush=True
-                )
 
             return jsonify({
                 "status": "received",
-                "payment_status": pagamento.get("status")
+                "type": "order",
+                "id": data_id
+            }), 200
+
+        if tipo == "payment":
+            return jsonify({
+                "status": "received",
+                "type": "payment",
+                "id": data_id
             }), 200
 
         return jsonify({
@@ -234,12 +82,13 @@ def criar_pix():
         headers = {
             "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
             "Content-Type": "application/json",
-            "X-idempotency-key": str(uuid.uuid4())
+            "X-Idempotency-Key": str(uuid.uuid4())
         }
 
         pedido = {
             "type": "online",
-            "external_reference": "teste_mikrotik_pix",
+            "processing_mode": "automatic",
+            "external_reference": f"mikrotik_{uuid.uuid4().hex[:10]}",
             "total_amount": "5.00",
             "payer": {
                 "email": "test_user_br@testuser.com",
@@ -295,16 +144,140 @@ def criar_pix():
         pagamento = pagamentos[0]
         metodo = pagamento.get("payment_method", {})
 
-        return jsonify({
-            "ok": True,
-            "order_id": dados.get("id"),
-            "status": dados.get("status"),
-            "status_detail": dados.get("status_detail"),
-            "payment_id": pagamento.get("id"),
-            "qr_code": metodo.get("qr_code"),
-            "qr_code_base64": metodo.get("qr_code_base64"),
-            "ticket_url": metodo.get("ticket_url")
-        }), 200
+        qr_code = metodo.get("qr_code", "")
+        qr_code_base64 = metodo.get("qr_code_base64", "")
+        ticket_url = metodo.get("ticket_url", "")
+        order_id = dados.get("id", "")
+
+        pagina = f"""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
+<title>Internet via PIX</title>
+
+<style>
+body {{
+    font-family: Arial, sans-serif;
+    background: #f2f4f7;
+    margin: 0;
+    padding: 18px;
+    text-align: center;
+}}
+
+.caixa {{
+    max-width: 420px;
+    margin: 20px auto;
+    background: white;
+    padding: 25px;
+    border-radius: 18px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+}}
+
+h1 {{
+    margin-bottom: 5px;
+}}
+
+.valor {{
+    font-size: 32px;
+    font-weight: bold;
+    margin: 15px 0;
+}}
+
+img {{
+    width: 260px;
+    max-width: 90%;
+    margin: 15px 0;
+}}
+
+textarea {{
+    box-sizing: border-box;
+    width: 100%;
+    height: 105px;
+    padding: 10px;
+    border-radius: 8px;
+    resize: none;
+}}
+
+button {{
+    width: 100%;
+    padding: 15px;
+    margin-top: 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 17px;
+    cursor: pointer;
+    background: #00a650;
+    color: white;
+}}
+
+.status {{
+    margin-top: 20px;
+    font-weight: bold;
+}}
+
+.codigo {{
+    font-size: 12px;
+    margin-top: 15px;
+}}
+</style>
+</head>
+
+<body>
+
+<div class="caixa">
+
+<h1>Internet via PIX</h1>
+
+<p>Plano de 1 hora</p>
+
+<div class="valor">
+R$ 5,00
+</div>
+
+<p>Escaneie o QR Code para pagar:</p>
+
+<img
+src="data:image/png;base64,{qr_code_base64}"
+alt="QR Code PIX"
+>
+
+<p><strong>PIX Copia e Cola</strong></p>
+
+<textarea id="pix" readonly>{qr_code}</textarea>
+
+<button onclick="copiarPix()">
+Copiar código PIX
+</button>
+
+<div class="status">
+Aguardando pagamento...
+</div>
+
+<div class="codigo">
+Pedido: {order_id}
+</div>
+
+</div>
+
+<script>
+function copiarPix() {{
+    const codigo = document.getElementById("pix").value;
+
+    navigator.clipboard.writeText(codigo).then(function() {{
+        alert("Código PIX copiado!");
+    }});
+}}
+</script>
+
+</body>
+</html>
+"""
+
+        return pagina, 200
 
     except Exception as erro:
         print(
