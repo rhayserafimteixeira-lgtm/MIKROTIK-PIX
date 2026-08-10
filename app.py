@@ -41,11 +41,133 @@ def webhook():
                 flush=True
             )
 
-            return jsonify({
-                "status": "received",
-                "type": "order",
-                "id": data_id
-            }), 200
+           qr_code = metodo.get("qr_code")
+qr_code_base64 = metodo.get("qr_code_base64")
+ticket_url = metodo.get("ticket_url")
+
+pagina = f"""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Internet via PIX</title>
+
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background: #f2f4f7;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }}
+
+        .caixa {{
+            max-width: 420px;
+            margin: 30px auto;
+            background: white;
+            padding: 25px;
+            border-radius: 18px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+        }}
+
+        h1 {{
+            margin-bottom: 5px;
+        }}
+
+        .valor {{
+            font-size: 30px;
+            font-weight: bold;
+            margin: 15px 0;
+        }}
+
+        img {{
+            width: 260px;
+            max-width: 90%;
+            margin: 15px 0;
+        }}
+
+        textarea {{
+            width: 95%;
+            height: 100px;
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 8px;
+        }}
+
+        button {{
+            width: 100%;
+            padding: 15px;
+            margin-top: 12px;
+            border: none;
+            border-radius: 10px;
+            font-size: 17px;
+            cursor: pointer;
+        }}
+
+        .copiar {{
+            background: #00a650;
+            color: white;
+        }}
+
+        .status {{
+            margin-top: 20px;
+            font-weight: bold;
+        }}
+    </style>
+</head>
+
+<body>
+
+<div class="caixa">
+
+    <h1>Internet via PIX</h1>
+
+    <p>Plano selecionado</p>
+
+    <div class="valor">
+        R$ 5,00
+    </div>
+
+    <p>Escaneie o QR Code:</p>
+
+    <img
+        src="data:image/png;base64,{qr_code_base64}"
+        alt="QR Code PIX"
+    >
+
+    <p><strong>PIX Copia e Cola</strong></p>
+
+    <textarea id="pix" readonly>{qr_code}</textarea>
+
+    <button class="copiar" onclick="copiarPix()">
+        Copiar código PIX
+    </button>
+
+    <div class="status">
+        ⏳ Aguardando pagamento...
+    </div>
+
+</div>
+
+<script>
+function copiarPix() {{
+    const campo = document.getElementById("pix");
+
+    campo.select();
+    campo.setSelectionRange(0, 99999);
+
+    navigator.clipboard.writeText(campo.value);
+
+    alert("Código PIX copiado!");
+}}
+</script>
+
+</body>
+</html>
+"""
+
+return pagina, 200
 
         if tipo == "payment":
             if not MP_ACCESS_TOKEN:
