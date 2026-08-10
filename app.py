@@ -1,10 +1,110 @@
+import os
+import requests
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
+
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Mikrotik Hotspot", 200
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        dados = request.get_json(silent=True) or {}
+
+        print("Webhook recebido:", dados, flush=True)
+
+        data_id = request.args.get("data.id")
+
+        if not data_id:
+            data = dados.get("data", {})
+            if isinstance(data, dict):
+                data_id = data.get("id")
+
+        tipo = request.args.get("type") or dados.get("type")
+        action = dados.get("action", "")
+
+        print(
+            f"Tipo: {tipo} | Action: {action} | ID: {data_id}",
+            flush=True
+        )
+
+        if tipo == "order" or action.startswith("order."):
+            print(
+                f"Evento ORDER recebido: {data_id}",
+                flush=True
+            )
+
+            return jsonify({
+                "status": "received",
+                "type": "order",
+                "id": data_id
+            }), 200
+
+        if tipo == "payment":
+            if not MP_ACCESS_TOKEN:
+                return jsonify({
+                    "status": "received",
+                    "message": "Access Token nao configurado"
+                }), 200
+
+            url = f"https://api.mercadopago.com/v1/payments/{data_id}"
+
+            resposta = requests.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {MP_ACCESS_TOKEN}"
+                },
+                timeout=15
+            )
+
+            if resposta.status_code == 404:
+                return jsonify({
+                    "status": "received",
+                    "message": "Notificacao de teste recebida"
+                }), 200
+
+            resposta.raise_for_status()
+
+            pagamento = resposta.json()
+
+            if pagamento.get("status") == "approved":
+                print(
+                    f"PIX APROVADO - pagamento {data_id}",
+                    flush=True
+                )
+
+            return jsonify({
+                "status": "received",
+                "payment_status": pagamento.get("status")
+            }), 200
+
+        return jsonify({
+            "status": "received",
+            "type": tipo
+        }), 200
+
+    except Exception as erro:
+        print("Erro no webhook:", str(erro), flush=True)
+
+        return jsonify({
+            "status": "received",
+            "error": str(erro)
+        }), 200
+
+
 @app.route("/criar-pix", methods=["GET"])
 def criar_pix():
     try:
         if not MP_ACCESS_TOKEN:
             return jsonify({
                 "ok": False,
-                "erro": "MP_ACCESS_TOKEN não configurado"
+                "erro": "MP_ACCESS_TOKEN nao configurado"
             }), 500
 
         url = "https://api.mercadopago.com/v1/orders"
@@ -44,7 +144,11 @@ def criar_pix():
 
         dados = resposta.json()
 
-        print("Resposta criação PIX:", dados, flush=True)
+        print(
+            "Resposta criacao PIX:",
+            dados,
+            flush=True
+        )
 
         if resposta.status_code not in (200, 201):
             return jsonify({
@@ -53,19 +157,19 @@ def criar_pix():
                 "mercado_pago": dados
             }), resposta.status_code
 
-        payments = (
+        pagamentos = (
             dados.get("transactions", {})
-                .get("payments", [])
+            .get("payments", [])
         )
 
-        if not payments:
+        if not pagamentos:
             return jsonify({
                 "ok": False,
-                "erro": "Order criada sem dados de pagamento",
+                "erro": "Order criada sem pagamento",
                 "order": dados
             }), 500
 
-        pagamento = payments[0]
+        pagamento = pagamentos[0]
         metodo = pagamento.get("payment_method", {})
 
         return jsonify({
@@ -80,145 +184,16 @@ def criar_pix():
         }), 200
 
     except Exception as erro:
-        print("Erro ao criar PIX:", str(erro), flush=True)
+        print(
+            "Erro ao criar PIX:",
+            str(erro),
+            flush=True
+        )
 
         return jsonify({
             "ok": False,
             "erro": str(erro)
-        }), 500import os
-import requests
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
-
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Mikrotik Hotspot - Sistema PIX Online", 200
-
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    try:
-        dados = request.get_json(silent=True) or {}
-
-        print("Webhook recebido:", dados, flush=True)
-
-        # Mercado Pago pode mandar o ID pela URL ou pelo JSON
-        data_id = request.args.get("data.id")
-
-        if not data_id:
-            data = dados.get("data", {})
-            if isinstance(data, dict):
-                data_id = data.get("id")
-
-        tipo = request.args.get("type") or dados.get("type")
-        action = dados.get("action", "")
-
-        print(
-            f"Tipo: {tipo} | Action: {action} | ID: {data_id}",
-            flush=True
-        )
-
-        # Simulações do painel do Mercado Pago usam IDs fictícios.
-        # O webhook deve confirmar o recebimento sem gerar erro 500.
-        if not data_id:
-            return jsonify({
-                "status": "received",
-                "message": "Webhook recebido sem ID"
-            }), 200
-
-        # Eventos do tipo payment
-        if tipo == "payment":
-            if not MP_ACCESS_TOKEN:
-                print("MP_ACCESS_TOKEN não configurado", flush=True)
-                return jsonify({
-                    "status": "received",
-                    "message": "Access token não configurado"
-                }), 200
-
-            url = f"https://api.mercadopago.com/v1/payments/{data_id}"
-
-            headers = {
-                "Authorization": f"Bearer {MP_ACCESS_TOKEN}"
-            }
-
-            resposta = requests.get(
-                url,
-                headers=headers,
-                timeout=15
-            )
-
-            # ID fictício usado pelo simulador
-            if resposta.status_code == 404:
-                print(
-                    f"Pagamento {data_id} não encontrado. "
-                    "Provavelmente notificação de teste.",
-                    flush=True
-                )
-
-                return jsonify({
-                    "status": "received",
-                    "message": "Notificação de teste recebida"
-                }), 200
-
-            resposta.raise_for_status()
-
-            pagamento = resposta.json()
-
-            print(
-                "Status do pagamento:",
-                pagamento.get("status"),
-                flush=True
-            )
-
-            if pagamento.get("status") == "approved":
-                print(
-                    f"PIX APROVADO - pagamento {data_id}",
-                    flush=True
-                )
-
-                # Depois colocaremos aqui a liberação
-                # automática do cliente no MikroTik.
-
-            return jsonify({
-                "status": "received",
-                "payment_status": pagamento.get("status")
-            }), 200
-
-        # Eventos Order
-        if tipo == "order" or action.startswith("order."):
-            print(
-                f"Evento ORDER recebido: {data_id}",
-                flush=True
-            )
-
-            # Neste momento apenas confirmamos o webhook.
-            # A consulta correta da Order será adicionada
-            # na próxima etapa.
-            return jsonify({
-                "status": "received",
-                "type": "order",
-                "id": data_id
-            }), 200
-
-        # Qualquer outro evento é confirmado
-        return jsonify({
-            "status": "received",
-            "type": tipo
-        }), 200
-
-    except Exception as erro:
-        print("Erro no webhook:", str(erro), flush=True)
-
-        # Confirma o recebimento para evitar repetição
-        # da notificação durante esta fase de configuração.
-        return jsonify({
-            "status": "received",
-            "error": str(erro)
-        }), 200
+        }), 500
 
 
 if __name__ == "__main__":
