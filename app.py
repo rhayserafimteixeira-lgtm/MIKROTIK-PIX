@@ -2,7 +2,7 @@ import os
 import requests
 from flask import Flask, request, jsonify
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
 
