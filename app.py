@@ -40,7 +40,6 @@ def webhook():
                 f"Evento ORDER recebido: {data_id}",
                 flush=True
             )
-
            qr_code = metodo.get("qr_code")
 qr_code_base64 = metodo.get("qr_code_base64")
 ticket_url = metodo.get("ticket_url")
