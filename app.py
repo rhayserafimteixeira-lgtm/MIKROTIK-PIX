@@ -84,15 +84,16 @@ def criar_pix():
             "Content-Type": "application/json",
             "X-Idempotency-Key": str(uuid.uuid4())
         }
-pedido = {
-    "type": "online",
-    "processing_mode": "automatic",
-    "external_reference": f"mikrotik_{uuid.uuid4().hex[:10]}",
-    "total_amount": "5.00",
-    "payer": {
-        "email": "rhayr8@gmail.com"
-    },
-    "transactions": {
+
+        pedido = {
+            "type": "online",
+            "processing_mode": "automatic",
+            "external_reference": f"mikrotik_{uuid.uuid4().hex[:10]}",
+            "total_amount": "5.00",
+            "payer": {
+                "email": "rhayr8@gmail.com"
+            },
+            "transactions": {
         "payments": [
             {
                 "amount": "5.00",
