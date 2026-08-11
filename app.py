@@ -112,10 +112,10 @@ def webhook():
 # CONSULTAR STATUS DO PIX
 # =========================================================
 
+
 @app.route("/status-pix/<order_id>", methods=["GET"])
 def status_pix(order_id):
     try:
-
         if not MP_ACCESS_TOKEN:
             return jsonify({
                 "ok": False,
@@ -144,6 +144,43 @@ def status_pix(order_id):
             }), resposta.status_code
 
         status = dados.get("status", "")
+        referencia = dados.get("external_reference", "")
+
+        # Se o PIX foi pago, registra a liberacao para o MikroTik
+        if status == "processed" and referencia.startswith("mikrotik_"):
+            partes = referencia.split("_")
+
+            if len(partes) >= 5:
+                plano_id = partes[1]
+                mac_limpo = partes[2]
+                ip_cliente = partes[3].replace("-", ".")
+
+                mac_cliente = ":".join(
+                    mac_limpo[i:i + 2]
+                    for i in range(0, 12, 2)
+                )
+
+                liberacoes = app.config.setdefault(
+                    "LIBERACOES_PENDENTES",
+                    {}
+                )
+
+                # Evita criar novamente a mesma liberacao toda vez
+                # que o celular consulta o status do pagamento.
+                if mac_cliente not in liberacoes:
+                    liberacoes[mac_cliente] = {
+                        "mac": mac_cliente,
+                        "ip": ip_cliente,
+                        "plano": plano_id,
+                        "order_id": order_id
+                    }
+
+                    print(
+                        f"LIBERACAO PENDENTE | MAC={mac_cliente} | "
+                        f"IP={ip_cliente} | PLANO={plano_id} | "
+                        f"ORDER={order_id}",
+                        flush=True
+                    )
 
         return jsonify({
             "ok": True,
@@ -152,60 +189,16 @@ def status_pix(order_id):
         }), 200
 
     except Exception as erro:
+        print(
+            "Erro no status PIX:",
+            str(erro),
+            flush=True
+        )
+
         return jsonify({
             "ok": False,
             "erro": str(erro)
         }), 500
-
-
-# =========================================================
-# CRIAR PIX / ESCOLHER PLANO
-# =========================================================
-
-@app.route("/criar-pix", methods=["GET"])
-def criar_pix():
-    try:
-
-        if not MP_ACCESS_TOKEN:
-            return jsonify({
-                "ok": False,
-                "erro": "MP_ACCESS_TOKEN nao configurado"
-            }), 500
-
-        # Dados enviados pelo MikroTik
-        mac = request.args.get("mac", "")
-        ip = request.args.get("ip", "")
-        link_login = request.args.get("link-login", "")
-        link_orig = request.args.get("link-orig", "")
-        print(
-            f"CLIENTE HOTSPOT | MAC={mac} | IP={ip} | LINK_LOGIN={link_login} | LINK_ORIG={link_orig}",
-            flush=True
-        )
-        # Planos
-        planos = {
-            "1h": {
-                "nome": "1 hora",
-                "valor": "5.00",
-                "horas": 1
-            },
-            "2h": {
-                "nome": "2 horas",
-                "valor": "10.00",
-                "horas": 2
-            },
-            "5h": {
-                "nome": "5 horas",
-                "valor": "15.00",
-                "horas": 5
-            },
-            "10h": {
-                "nome": "10 horas",
-                "valor": "20.00",
-                "horas": 10
-            }
-        }
-
-        plano_id = request.args.get("plano", "")
 
         # =====================================================
         # TELA PARA ESCOLHER O PLANO
