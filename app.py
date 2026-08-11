@@ -309,9 +309,12 @@ href="/criar-pix?plano=10h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={
             "X-Idempotency-Key": str(uuid.uuid4())
         }
 
+        mac_ref = mac.replace(":", "").replace("-", "")
+        ip_ref = ip.replace(".", "-")
+
         referencia = (
-            f"mikrotik_{plano_id}_"
-            f"{uuid.uuid4().hex[:10]}"
+            f"mikrotik_{plano_id}_{mac_ref}_{ip_ref}_"
+            f"{uuid.uuid4().hex[:8]}"
         )
 
         pedido = {
