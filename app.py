@@ -141,7 +141,7 @@ def criar_pix():
         ip = request.args.get("ip", "")
         link_login = request.args.get("link-login", "")
         link_orig = request.args.get("link-orig", "")
-               print(
+        print(
             f"CLIENTE HOTSPOT | MAC={mac} | IP={ip} | LINK_LOGIN={link_login} | LINK_ORIG={link_orig}",
             flush=True
         )
