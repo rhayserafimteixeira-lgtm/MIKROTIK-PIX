@@ -45,7 +45,10 @@ def webhook():
         )
 
         if tipo == "order" or action.startswith("order."):
-            referencia = dados.get("external_reference", "")
+            referencia = (
+    request.args.get("data.external_reference")
+    or dados.get("external_reference", "")
+)
             status_order = dados.get("status", "")
 
             if status_order == "processed" and referencia.startswith("mikrotik_"):
