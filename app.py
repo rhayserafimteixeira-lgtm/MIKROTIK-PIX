@@ -44,7 +44,7 @@ def webhook():
             flush=True
         )
 
-           if tipo == "order" or action.startswith("order."):
+        if tipo == "order" or action.startswith("order."):
             referencia = dados.get("external_reference", "")
             status_order = dados.get("status", "")
 
