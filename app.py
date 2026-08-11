@@ -44,12 +44,45 @@ def webhook():
             flush=True
         )
 
-        if tipo == "order" or action.startswith("order."):
+                if tipo == "order" or action.startswith("order."):
+            referencia = dados.get("external_reference", "")
+            status_order = dados.get("status", "")
+
+            if status_order == "processed" and referencia.startswith("mikrotik_"):
+                partes = referencia.split("_")
+
+                if len(partes) >= 5:
+                    plano_id = partes[1]
+                    mac_limpo = partes[2]
+                    ip_cliente = partes[3].replace("-", ".")
+
+                    mac_cliente = ":".join(
+                        mac_limpo[i:i+2]
+                        for i in range(0, 12, 2)
+                    )
+
+                    liberacoes = app.config.setdefault(
+                        "LIBERACOES_PENDENTES",
+                        {}
+                    )
+
+                    liberacoes[mac_cliente] = {
+                        "mac": mac_cliente,
+                        "ip": ip_cliente,
+                        "plano": plano_id,
+                        "order_id": data_id
+                    }
+
+                    print(
+                        f"LIBERACAO PENDENTE | MAC={mac_cliente} | IP={ip_cliente} | PLANO={plano_id}",
+                        flush=True
+                    )
+
             return jsonify({
                 "status": "received",
                 "type": "order",
                 "id": data_id
-            }), 200
+            }), 200       
 
         if tipo == "payment":
             return jsonify({
