@@ -1,115 +1,3 @@
-import os
-import uuid
-import requests
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
-
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Mikrotik Hotspot", 200
-
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    try:
-        dados = request.get_json(silent=True) or {}
-
-        print("Webhook recebido:", dados, flush=True)
-
-        data_id = request.args.get("data.id")
-
-        if not data_id:
-            data = dados.get("data", {})
-            if isinstance(data, dict):
-                data_id = data.get("id")
-
-        tipo = request.args.get("type") or dados.get("type")
-        action = dados.get("action", "")
-
-        print(
-            f"Tipo: {tipo} | Action: {action} | ID: {data_id}",
-            flush=True
-        )
-
-        if tipo == "order" or action.startswith("order."):
-            print(
-                f"Evento ORDER recebido: {data_id}",
-                flush=True
-            )
-
-            return jsonify({
-                "status": "received",
-                "type": "order",
-                "id": data_id
-            }), 200
-
-        if tipo == "payment":
-            return jsonify({
-                "status": "received",
-                "type": "payment",
-                "id": data_id
-            }), 200
-
-        return jsonify({
-            "status": "received",
-            "type": tipo
-        }), 200
-
-    except Exception as erro:
-        print("Erro no webhook:", str(erro), flush=True)
-
-        return jsonify({
-            "status": "received",
-            "error": str(erro)
-        }), 200
-
-@app.route("/status-pix/<order_id>", methods=["GET"])
-def status_pix(order_id):
-    try:
-        if not MP_ACCESS_TOKEN:
-            return jsonify({
-                "ok": False,
-                "erro": "MP_ACCESS_TOKEN nao configurado"
-            }), 500
-
-        url = f"https://api.mercadopago.com/v1/orders/{order_id}"
-
-        headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}"
-        }
-
-        resposta = requests.get(
-            url,
-            headers=headers,
-            timeout=20
-        )
-
-        dados = resposta.json()
-
-        if resposta.status_code != 200:
-            return jsonify({
-                "ok": False,
-                "status_code": resposta.status_code,
-                "mercado_pago": dados
-            }), resposta.status_code
-
-        status = dados.get("status", "")
-
-        return jsonify({
-            "ok": True,
-            "status": status,
-            "pago": status == "processed"
-        }), 200
-
-    except Exception as erro:
-        return jsonify({
-            "ok": False,
-            "erro": str(erro)
-        }), 500
 @app.route("/criar-pix", methods=["GET"])
 def criar_pix():
     try:
@@ -119,6 +7,148 @@ def criar_pix():
                 "erro": "MP_ACCESS_TOKEN nao configurado"
             }), 500
 
+        # Dados vindos do MikroTik
+        mac = request.args.get("mac", "")
+        ip = request.args.get("ip", "")
+        link_login = request.args.get("link-login", "")
+        link_orig = request.args.get("link-orig", "")
+
+        # Planos disponíveis
+        planos = {
+            "1h": {
+                "nome": "1 hora",
+                "valor": "5.00",
+                "horas": 1
+            },
+            "2h": {
+                "nome": "2 horas",
+                "valor": "10.00",
+                "horas": 2
+            },
+            "5h": {
+                "nome": "5 horas",
+                "valor": "15.00",
+                "horas": 5
+            },
+            "10h": {
+                "nome": "10 horas",
+                "valor": "20.00",
+                "horas": 10
+            }
+        }
+
+        plano_id = request.args.get("plano", "")
+
+        # Se ainda não escolheu plano, mostra a tela de seleção
+        if plano_id not in planos:
+            pagina_planos = f"""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
+<title>Escolha seu plano</title>
+
+<style>
+body {{
+    font-family: Arial, sans-serif;
+    background: #f2f4f7;
+    margin: 0;
+    padding: 18px;
+    text-align: center;
+}}
+
+.caixa {{
+    max-width: 420px;
+    margin: 20px auto;
+    background: white;
+    padding: 25px;
+    border-radius: 18px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+}}
+
+h1 {{
+    margin-bottom: 8px;
+}}
+
+.subtitulo {{
+    color: #555;
+    margin-bottom: 22px;
+}}
+
+.plano {{
+    display: block;
+    text-decoration: none;
+    color: #111;
+    border: 2px solid #00a650;
+    border-radius: 14px;
+    padding: 18px;
+    margin: 13px 0;
+    font-size: 20px;
+    font-weight: bold;
+}}
+
+.plano span {{
+    display: block;
+    color: #00a650;
+    font-size: 25px;
+    margin-top: 5px;
+}}
+
+.plano:hover {{
+    background: #f0fff7;
+}}
+</style>
+</head>
+
+<body>
+
+<div class="caixa">
+
+<h1>🌐 Internet Wi-Fi</h1>
+
+<p class="subtitulo">
+Escolha o tempo de acesso
+</p>
+
+<a class="plano"
+href="/criar-pix?plano=1h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={link_orig}">
+1 hora
+<span>R$ 5,00</span>
+</a>
+
+<a class="plano"
+href="/criar-pix?plano=2h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={link_orig}">
+2 horas
+<span>R$ 10,00</span>
+</a>
+
+<a class="plano"
+href="/criar-pix?plano=5h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={link_orig}">
+5 horas
+<span>R$ 15,00</span>
+</a>
+
+<a class="plano"
+href="/criar-pix?plano=10h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={link_orig}">
+10 horas
+<span>R$ 20,00</span>
+</a>
+
+</div>
+
+</body>
+</html>
+"""
+            return pagina_planos, 200
+
+        plano = planos[plano_id]
+        valor = plano["valor"]
+        nome_plano = plano["nome"]
+        horas = plano["horas"]
+
         url = "https://api.mercadopago.com/v1/orders"
 
         headers = {
@@ -127,29 +157,31 @@ def criar_pix():
             "X-Idempotency-Key": str(uuid.uuid4())
         }
 
+        referencia = (
+            f"mikrotik_{plano_id}_"
+            f"{uuid.uuid4().hex[:10]}"
+        )
+
         pedido = {
             "type": "online",
             "processing_mode": "automatic",
-            "external_reference": f"mikrotik_{uuid.uuid4().hex[:10]}",
-            "total_amount": "5.00",
+            "external_reference": referencia,
+            "total_amount": valor,
             "payer": {
                 "email": "rhayr8@gmail.com"
             },
             "transactions": {
-        "payments": [
-            {
-                "amount": "5.00",
-                "payment_method": {
-                    "id": "pix",
-                    "type": "bank_transfer"
-                }
+                "payments": [
+                    {
+                        "amount": valor,
+                        "payment_method": {
+                            "id": "pix",
+                            "type": "bank_transfer"
+                        }
+                    }
+                ]
             }
-        ]
-    }
-}
-  
-           
-       
+        }
 
         resposta = requests.post(
             url,
@@ -190,7 +222,6 @@ def criar_pix():
 
         qr_code = metodo.get("qr_code", "")
         qr_code_base64 = metodo.get("qr_code_base64", "")
-        ticket_url = metodo.get("ticket_url", "")
         order_id = dados.get("id", "")
 
         pagina = f"""
@@ -221,14 +252,15 @@ body {{
     box-shadow: 0 4px 15px rgba(0,0,0,0.15);
 }}
 
-h1 {{
-    margin-bottom: 5px;
-}}
-
 .valor {{
     font-size: 32px;
     font-weight: bold;
     margin: 15px 0;
+}}
+
+.plano {{
+    font-size: 20px;
+    font-weight: bold;
 }}
 
 img {{
@@ -276,10 +308,12 @@ button {{
 
 <h1>Internet via PIX</h1>
 
-<p>Plano de 1 hora</p>
+<div class="plano">
+Plano de {nome_plano}
+</div>
 
 <div class="valor">
-R$ 5,00
+R$ {valor.replace(".", ",")}
 </div>
 
 <p>Escaneie o QR Code para pagar:</p>
@@ -302,45 +336,61 @@ Aguardando pagamento...
 </div>
 
 <div class="codigo">
-Pedido: {order_id}
+Pedido: {order_id}<br>
+Plano: {nome_plano}<br>
+Tempo: {horas} hora(s)
 </div>
 
 </div>
 
 <script>
 function copiarPix() {{
-    const codigo = document.getElementById("pix").value;
+    const codigo =
+        document.getElementById("pix").value;
 
-    navigator.clipboard.writeText(codigo).then(function() {{
-        alert("Código PIX copiado!");
-    }});
+    navigator.clipboard.writeText(codigo)
+        .then(function() {{
+            alert("Código PIX copiado!");
+        }});
 }}
 
 async function verificarPagamento() {{
     try {{
-        const resposta = await fetch("/status-pix/{order_id}");
-        const dados = await resposta.json();
+        const resposta =
+            await fetch("/status-pix/{order_id}");
 
-        const statusTela = document.getElementById("status-pagamento");
+        const dados =
+            await resposta.json();
+
+        const statusTela =
+            document.getElementById(
+                "status-pagamento"
+            );
 
         if (dados.ok && dados.pago) {{
-            statusTela.textContent = "Pagamento aprovado!";
+            statusTela.textContent =
+                "Pagamento aprovado!";
 
             if (timerPagamento) {{
                 clearInterval(timerPagamento);
             }}
+
         }} else if (dados.ok) {{
-            statusTela.textContent = "Aguardando pagamento...";
-        }} else {{
-            console.log("Erro ao consultar pagamento:", dados);
+            statusTela.textContent =
+                "Aguardando pagamento...";
         }}
 
     }} catch (erro) {{
-        console.log("Erro na consulta do pagamento:", erro);
+        console.log(
+            "Erro na consulta do pagamento:",
+            erro
+        );
     }}
 }}
 
-let timerPagamento = setInterval(verificarPagamento, 5000);
+let timerPagamento =
+    setInterval(verificarPagamento, 5000);
+
 verificarPagamento();
 </script>
 
@@ -361,8 +411,3 @@ verificarPagamento();
             "ok": False,
             "erro": str(erro)
         }), 500
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
