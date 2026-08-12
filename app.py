@@ -199,6 +199,85 @@ def status_pix(order_id):
             "ok": False,
             "erro": str(erro)
         }), 500
+# =========================================================
+# MIKROTIK - CONSULTAR LIBERACAO PENDENTE
+# =========================================================
+
+@app.route("/liberacao-pendente", methods=["GET"])
+def liberacao_pendente():
+    liberacoes = app.config.setdefault(
+        "LIBERACOES_PENDENTES",
+        {}
+    )
+
+    if not liberacoes:
+        return jsonify({
+            "ok": True,
+            "pendente": False
+        }), 200
+
+    mac, dados = next(iter(liberacoes.items()))
+
+    return jsonify({
+        "ok": True,
+        "pendente": True,
+        "mac": dados.get("mac", mac),
+        "ip": dados.get("ip", ""),
+        "plano": dados.get("plano", ""),
+        "order_id": dados.get("order_id", "")
+    }), 200
+
+# =========================================================
+# CRIAR PIX / ESCOLHER PLANO
+# =========================================================
+
+@app.route("/criar-pix", methods=["GET"])
+def criar_pix():
+    try:
+        if not MP_ACCESS_TOKEN:
+            return jsonify({
+                "ok": False,
+                "erro": "MP_ACCESS_TOKEN nao configurado"
+            }), 500
+
+        # Dados enviados pelo MikroTik
+        mac = request.args.get("mac", "")
+        ip = request.args.get("ip", "")
+        link_login = request.args.get("link-login", "")
+        link_orig = request.args.get("link-orig", "")
+
+        print(
+            f"CLIENTE HOTSPOT | MAC={mac} | IP={ip} | "
+            f"LINK_LOGIN={link_login} | LINK_ORIG={link_orig}",
+            flush=True
+        )
+
+        # Planos
+        planos = {
+            "1h": {
+                "nome": "1 hora",
+                "valor": "5.00",
+                "horas": 1
+            },
+            "2h": {
+                "nome": "2 horas",
+                "valor": "10.00",
+                "horas": 2
+            },
+            "5h": {
+                "nome": "5 horas",
+                "valor": "15.00",
+                "horas": 5
+            },
+            "10h": {
+                "nome": "10 horas",
+                "valor": "20.00",
+                "horas": 10
+            }
+        }
+
+        plano_id = request.args.get("plano", "")
+        
 
         # =====================================================
         # TELA PARA ESCOLHER O PLANO
