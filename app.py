@@ -226,7 +226,39 @@ def liberacao_pendente():
         "plano": dados.get("plano", ""),
         "order_id": dados.get("order_id", "")
     }), 200
+    
+# =========================================================
+# MIKROTIK - CONFIRMAR LIBERACAO
+# =========================================================
 
+@app.route("/confirmar-liberacao", methods=["GET"])
+def confirmar_liberacao():
+    mac = request.args.get("mac", "").strip().upper()
+
+    if not mac:
+        return jsonify({
+            "ok": False,
+            "erro": "MAC nao informado"
+        }), 400
+
+    liberacoes = app.config.setdefault(
+        "LIBERACOES_PENDENTES",
+        {}
+    )
+
+    if mac not in liberacoes:
+        return jsonify({
+            "ok": False,
+            "erro": "Liberacao nao encontrada"
+        }), 404
+
+    liberacoes.pop(mac, None)
+
+    return jsonify({
+        "ok": True,
+        "confirmado": True,
+        "mac": mac
+    }), 200
 # =========================================================
 # CRIAR PIX / ESCOLHER PLANO
 # =========================================================
