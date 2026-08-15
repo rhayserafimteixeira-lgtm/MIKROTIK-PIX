@@ -1,11 +1,168 @@
 import os
 import uuid
+from urllib.parse import urlencode
+
 import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
 MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
+MP_PAYER_EMAIL = os.getenv("MP_PAYER_EMAIL", "rhayr8@gmail.com")
+
+MP_API_BASE = "https://api.mercadopago.com"
+REQUEST_TIMEOUT = 20
+
+PLANOS = {
+    "1h": {"nome": "1 hora", "valor": "5.00", "horas": 1},
+    "2h": {"nome": "2 horas", "valor": "10.00", "horas": 2},
+    "5h": {"nome": "5 horas", "valor": "15.00", "horas": 5},
+    "10h": {"nome": "10 horas", "valor": "20.00", "horas": 10},
+}
+
+
+# =========================================================
+# FUNCOES AUXILIARES
+# =========================================================
+
+def mp_headers(json_body=False):
+    headers = {
+        "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+    }
+
+    if json_body:
+        headers["Content-Type"] = "application/json"
+
+    return headers
+
+
+def consultar_order(order_id):
+    url = f"{MP_API_BASE}/v1/orders/{order_id}"
+
+    resposta = requests.get(
+        url,
+        headers=mp_headers(),
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    try:
+        dados = resposta.json()
+    except ValueError:
+        dados = {
+            "erro": "Resposta invalida do Mercado Pago",
+            "texto": resposta.text[:500],
+        }
+
+    return resposta, dados
+
+
+def order_esta_paga(dados):
+    """
+    Considera pago somente quando:
+    status = processed
+    status_detail = accredited
+
+    Isso evita liberar uma order processada que esteja, por exemplo,
+    parcialmente reembolsada.
+    """
+    return (
+        dados.get("status") == "processed"
+        and dados.get("status_detail") == "accredited"
+    )
+
+
+def normalizar_mac(mac):
+    mac_limpo = (
+        (mac or "")
+        .replace(":", "")
+        .replace("-", "")
+        .replace(".", "")
+        .strip()
+        .upper()
+    )
+
+    if len(mac_limpo) != 12:
+        return ""
+
+    return ":".join(
+        mac_limpo[i:i + 2]
+        for i in range(0, 12, 2)
+    )
+
+
+def dados_da_referencia(referencia):
+    """
+    Formato criado pelo sistema:
+    mikrotik_<plano>_<mac-sem-separador>_<ip-com-hifen>_<id>
+    """
+    if not referencia or not referencia.startswith("mikrotik_"):
+        return None
+
+    partes = referencia.split("_")
+
+    if len(partes) < 5:
+        return None
+
+    plano_id = partes[1]
+    mac_cliente = normalizar_mac(partes[2])
+    ip_cliente = partes[3].replace("-", ".")
+
+    if plano_id not in PLANOS or not mac_cliente:
+        return None
+
+    return {
+        "plano": plano_id,
+        "horas": PLANOS[plano_id]["horas"],
+        "mac": mac_cliente,
+        "ip": ip_cliente,
+    }
+
+
+def registrar_liberacao(dados_order, order_id):
+    """
+    Registra uma liberacao pendente apenas se a order estiver
+    realmente paga e tiver sido criada por este sistema.
+    """
+    if not order_esta_paga(dados_order):
+        return False
+
+    referencia = dados_order.get("external_reference", "")
+    cliente = dados_da_referencia(referencia)
+
+    if not cliente:
+        return False
+
+    liberacoes = app.config.setdefault(
+        "LIBERACOES_PENDENTES",
+        {},
+    )
+
+    mac_cliente = cliente["mac"]
+
+    # Evita duplicar a mesma liberacao.
+    existente = liberacoes.get(mac_cliente)
+    if existente and existente.get("order_id") == order_id:
+        return True
+
+    liberacoes[mac_cliente] = {
+        "mac": mac_cliente,
+        "ip": cliente["ip"],
+        "plano": cliente["plano"],
+        "horas": cliente["horas"],
+        "order_id": order_id,
+    }
+
+    print(
+        "LIBERACAO PENDENTE | "
+        f"MAC={mac_cliente} | "
+        f"IP={cliente['ip']} | "
+        f"PLANO={cliente['plano']} | "
+        f"HORAS={cliente['horas']} | "
+        f"ORDER={order_id}",
+        flush=True,
+    )
+
+    return True
 
 
 # =========================================================
@@ -23,88 +180,96 @@ def home():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    """
+    O webhook do Mercado Pago informa principalmente o ID do recurso.
+    Por seguranca e confiabilidade, o servidor consulta a order
+    diretamente na API do Mercado Pago antes de liberar o cliente.
+    """
     try:
-        dados = request.get_json(silent=True) or {}
+        dados_webhook = request.get_json(silent=True) or {}
 
-        print("Webhook recebido:", dados, flush=True)
+        print(
+            "Webhook recebido:",
+            dados_webhook,
+            flush=True,
+        )
 
         data_id = request.args.get("data.id")
 
         if not data_id:
-            data = dados.get("data", {})
-
+            data = dados_webhook.get("data", {})
             if isinstance(data, dict):
                 data_id = data.get("id")
 
-        tipo = request.args.get("type") or dados.get("type")
-        action = dados.get("action", "")
+        tipo = request.args.get("type") or dados_webhook.get("type")
+        action = dados_webhook.get("action", "")
 
         print(
-            f"Tipo: {tipo} | Action: {action} | ID: {data_id}",
-            flush=True
+            f"Tipo={tipo} | Action={action} | ID={data_id}",
+            flush=True,
         )
 
+        # Para Orders API, so processamos notificacoes de order.
         if tipo == "order" or action.startswith("order."):
-            referencia = (
-    request.args.get("data.external_reference")
-    or dados.get("external_reference", "")
-)
-            status_order = dados.get("status", "")
+            if not data_id:
+                return jsonify({
+                    "status": "received",
+                    "type": "order",
+                    "aviso": "data.id ausente",
+                }), 200
 
-            if status_order == "processed" and referencia.startswith("mikrotik_"):
-                partes = referencia.split("_")
+            if not MP_ACCESS_TOKEN:
+                print(
+                    "Webhook: MP_ACCESS_TOKEN nao configurado",
+                    flush=True,
+                )
+                return jsonify({
+                    "status": "received",
+                    "type": "order",
+                    "id": data_id,
+                }), 200
 
-                if len(partes) >= 5:
-                    plano_id = partes[1]
-                    mac_limpo = partes[2]
-                    ip_cliente = partes[3].replace("-", ".")
+            resposta, dados_order = consultar_order(data_id)
 
-                    mac_cliente = ":".join(
-                        mac_limpo[i:i+2]
-                        for i in range(0, 12, 2)
-                    )
-
-                    liberacoes = app.config.setdefault(
-                        "LIBERACOES_PENDENTES",
-                        {}
-                    )
-
-                    liberacoes[mac_cliente] = {
-                        "mac": mac_cliente,
-                        "ip": ip_cliente,
-                        "plano": plano_id,
-                        "order_id": data_id
-                    }
-
-                    print(
-                        f"LIBERACAO PENDENTE | MAC={mac_cliente} | IP={ip_cliente} | PLANO={plano_id}",
-                        flush=True
-                    )
+            if resposta.status_code == 200:
+                registrar_liberacao(
+                    dados_order,
+                    data_id,
+                )
+            else:
+                print(
+                    "Webhook: falha ao consultar order | "
+                    f"HTTP={resposta.status_code} | "
+                    f"DADOS={dados_order}",
+                    flush=True,
+                )
 
             return jsonify({
                 "status": "received",
                 "type": "order",
-                "id": data_id
-            }), 200       
-
-        if tipo == "payment":
-            return jsonify({
-                "status": "received",
-                "type": "payment",
-                "id": data_id
+                "id": data_id,
             }), 200
 
+        # Mantemos resposta 200 para outros eventos,
+        # mas eles nao liberam internet.
         return jsonify({
             "status": "received",
-            "type": tipo
+            "type": tipo,
+            "id": data_id,
         }), 200
 
     except Exception as erro:
-        print("Erro no webhook:", str(erro), flush=True)
+        print(
+            "Erro no webhook:",
+            str(erro),
+            flush=True,
+        )
 
+        # Mercado Pago espera 200/201 para confirmar o recebimento.
+        # A consulta /status-pix tambem serve como redundancia.
         return jsonify({
             "status": "received",
-            "error": str(erro)
+            "error": str(erro),
         }), 200
 
 
@@ -112,93 +277,54 @@ def webhook():
 # CONSULTAR STATUS DO PIX
 # =========================================================
 
-
 @app.route("/status-pix/<order_id>", methods=["GET"])
 def status_pix(order_id):
     try:
         if not MP_ACCESS_TOKEN:
             return jsonify({
                 "ok": False,
-                "erro": "MP_ACCESS_TOKEN nao configurado"
+                "erro": "MP_ACCESS_TOKEN nao configurado",
             }), 500
 
-        url = f"https://api.mercadopago.com/v1/orders/{order_id}"
-
-        headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}"
-        }
-
-        resposta = requests.get(
-            url,
-            headers=headers,
-            timeout=20
-        )
-
-        dados = resposta.json()
+        resposta, dados = consultar_order(order_id)
 
         if resposta.status_code != 200:
             return jsonify({
                 "ok": False,
                 "status_code": resposta.status_code,
-                "mercado_pago": dados
+                "mercado_pago": dados,
             }), resposta.status_code
 
         status = dados.get("status", "")
-        referencia = dados.get("external_reference", "")
+        status_detail = dados.get("status_detail", "")
+        pago = order_esta_paga(dados)
 
-        # Se o PIX foi pago, registra a liberacao para o MikroTik
-        if status == "processed" and referencia.startswith("mikrotik_"):
-            partes = referencia.split("_")
-
-            if len(partes) >= 5:
-                plano_id = partes[1]
-                mac_limpo = partes[2]
-                ip_cliente = partes[3].replace("-", ".")
-
-                mac_cliente = ":".join(
-                    mac_limpo[i:i + 2]
-                    for i in range(0, 12, 2)
-                )
-
-                liberacoes = app.config.setdefault(
-                    "LIBERACOES_PENDENTES",
-                    {}
-                )
-
-                # Evita criar novamente a mesma liberacao toda vez
-                # que o celular consulta o status do pagamento.
-                if mac_cliente not in liberacoes:
-                    liberacoes[mac_cliente] = {
-                        "mac": mac_cliente,
-                        "ip": ip_cliente,
-                        "plano": plano_id,
-                        "order_id": order_id
-                    }
-
-                    print(
-                        f"LIBERACAO PENDENTE | MAC={mac_cliente} | "
-                        f"IP={ip_cliente} | PLANO={plano_id} | "
-                        f"ORDER={order_id}",
-                        flush=True
-                    )
+        if pago:
+            registrar_liberacao(
+                dados,
+                order_id,
+            )
 
         return jsonify({
             "ok": True,
             "status": status,
-            "pago": status == "processed"
+            "status_detail": status_detail,
+            "pago": pago,
         }), 200
 
     except Exception as erro:
         print(
             "Erro no status PIX:",
             str(erro),
-            flush=True
+            flush=True,
         )
 
         return jsonify({
             "ok": False,
-            "erro": str(erro)
+            "erro": str(erro),
         }), 500
+
+
 # =========================================================
 # MIKROTIK - CONSULTAR LIBERACAO PENDENTE
 # =========================================================
@@ -207,13 +333,13 @@ def status_pix(order_id):
 def liberacao_pendente():
     liberacoes = app.config.setdefault(
         "LIBERACOES_PENDENTES",
-        {}
+        {},
     )
 
     if not liberacoes:
         return jsonify({
             "ok": True,
-            "pendente": False
+            "pendente": False,
         }), 200
 
     mac, dados = next(iter(liberacoes.items()))
@@ -224,32 +350,36 @@ def liberacao_pendente():
         "mac": dados.get("mac", mac),
         "ip": dados.get("ip", ""),
         "plano": dados.get("plano", ""),
-        "order_id": dados.get("order_id", "")
+        "horas": dados.get("horas", 0),
+        "order_id": dados.get("order_id", ""),
     }), 200
-    
+
+
 # =========================================================
 # MIKROTIK - CONFIRMAR LIBERACAO
 # =========================================================
 
 @app.route("/confirmar-liberacao", methods=["GET"])
 def confirmar_liberacao():
-    mac = request.args.get("mac", "").strip().upper()
+    mac = normalizar_mac(
+        request.args.get("mac", "")
+    )
 
     if not mac:
         return jsonify({
             "ok": False,
-            "erro": "MAC nao informado"
+            "erro": "MAC nao informado ou invalido",
         }), 400
 
     liberacoes = app.config.setdefault(
         "LIBERACOES_PENDENTES",
-        {}
+        {},
     )
 
     if mac not in liberacoes:
         return jsonify({
             "ok": False,
-            "erro": "Liberacao nao encontrada"
+            "erro": "Liberacao nao encontrada",
         }), 404
 
     liberacoes.pop(mac, None)
@@ -257,8 +387,10 @@ def confirmar_liberacao():
     return jsonify({
         "ok": True,
         "confirmado": True,
-        "mac": mac
+        "mac": mac,
     }), 200
+
+
 # =========================================================
 # CRIAR PIX / ESCOLHER PLANO
 # =========================================================
@@ -269,69 +401,51 @@ def criar_pix():
         if not MP_ACCESS_TOKEN:
             return jsonify({
                 "ok": False,
-                "erro": "MP_ACCESS_TOKEN nao configurado"
+                "erro": "MP_ACCESS_TOKEN nao configurado",
             }), 500
 
-        # Dados enviados pelo MikroTik
-        mac = request.args.get("mac", "")
-        ip = request.args.get("ip", "")
-        link_login = request.args.get("link-login", "")
-        link_orig = request.args.get("link-orig", "")
+        # Dados enviados pelo Hotspot MikroTik.
+        mac = request.args.get("mac", "").strip()
+        ip = request.args.get("ip", "").strip()
+        link_login = request.args.get("link-login", "").strip()
+        link_orig = request.args.get("link-orig", "").strip()
+
+        mac_normalizado = normalizar_mac(mac)
+
+        if mac and mac_normalizado:
+            mac = mac_normalizado
 
         print(
             f"CLIENTE HOTSPOT | MAC={mac} | IP={ip} | "
             f"LINK_LOGIN={link_login} | LINK_ORIG={link_orig}",
-            flush=True
+            flush=True,
         )
 
-        # Planos
-        planos = {
-            "1h": {
-                "nome": "1 hora",
-                "valor": "5.00",
-                "horas": 1
-            },
-            "2h": {
-                "nome": "2 horas",
-                "valor": "10.00",
-                "horas": 2
-            },
-            "5h": {
-                "nome": "5 horas",
-                "valor": "15.00",
-                "horas": 5
-            },
-            "10h": {
-                "nome": "10 horas",
-                "valor": "20.00",
-                "horas": 10
-            }
-        }
-
         plano_id = request.args.get("plano", "")
-        
 
         # =====================================================
         # TELA PARA ESCOLHER O PLANO
         # =====================================================
 
-        if plano_id not in planos:
+        if plano_id not in PLANOS:
+            def link_plano(id_plano):
+                query = urlencode({
+                    "plano": id_plano,
+                    "mac": mac,
+                    "ip": ip,
+                    "link-login": link_login,
+                    "link-orig": link_orig,
+                })
+                return f"/criar-pix?{query}"
 
             pagina_planos = f"""
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
-
 <meta charset="UTF-8">
-
-<meta name="viewport"
-content="width=device-width, initial-scale=1.0">
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Internet via PIX</title>
-
 <style>
-
 body {{
     font-family: Arial, sans-serif;
     background: #f2f4f7;
@@ -339,7 +453,6 @@ body {{
     padding: 18px;
     text-align: center;
 }}
-
 .caixa {{
     max-width: 420px;
     margin: 20px auto;
@@ -348,16 +461,13 @@ body {{
     border-radius: 18px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.15);
 }}
-
 h1 {{
     margin-bottom: 8px;
 }}
-
 .subtitulo {{
     color: #555;
     margin-bottom: 22px;
 }}
-
 .plano {{
     display: block;
     text-decoration: none;
@@ -369,87 +479,78 @@ h1 {{
     font-size: 20px;
     font-weight: bold;
 }}
-
 .plano span {{
     display: block;
     color: #00a650;
     font-size: 25px;
     margin-top: 5px;
 }}
-
 .plano:hover {{
     background: #f0fff7;
 }}
-
 </style>
-
 </head>
-
 <body>
-
 <div class="caixa">
-
 <h1>🌐 Internet Wi-Fi</h1>
+<p class="subtitulo">Escolha seu plano de acesso</p>
 
-<p class="subtitulo">
-Escolha seu plano de acesso
-</p>
-
-<a class="plano"
-href="/criar-pix?plano=1h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={link_orig}">
+<a class="plano" href="{link_plano('1h')}">
 1 hora
 <span>R$ 5,00</span>
 </a>
 
-<a class="plano"
-href="/criar-pix?plano=2h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={link_orig}">
+<a class="plano" href="{link_plano('2h')}">
 2 horas
 <span>R$ 10,00</span>
 </a>
 
-<a class="plano"
-href="/criar-pix?plano=5h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={link_orig}">
+<a class="plano" href="{link_plano('5h')}">
 5 horas
 <span>R$ 15,00</span>
 </a>
 
-<a class="plano"
-href="/criar-pix?plano=10h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={link_orig}">
+<a class="plano" href="{link_plano('10h')}">
 10 horas
 <span>R$ 20,00</span>
 </a>
-
 </div>
-
 </body>
 </html>
 """
-
             return pagina_planos, 200
 
         # =====================================================
         # PLANO ESCOLHIDO
         # =====================================================
 
-        plano = planos[plano_id]
-
+        plano = PLANOS[plano_id]
         valor = plano["valor"]
         nome_plano = plano["nome"]
         horas = plano["horas"]
+
+        if not mac_normalizado:
+            return jsonify({
+                "ok": False,
+                "erro": "MAC do cliente nao informado ou invalido",
+            }), 400
+
+        if not ip:
+            return jsonify({
+                "ok": False,
+                "erro": "IP do cliente nao informado",
+            }), 400
 
         # =====================================================
         # CRIAR ORDER PIX NO MERCADO PAGO
         # =====================================================
 
-        url = "https://api.mercadopago.com/v1/orders"
+        url = f"{MP_API_BASE}/v1/orders"
 
-        headers = {
-            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
-            "Content-Type": "application/json",
-            "X-Idempotency-Key": str(uuid.uuid4())
-        }
+        headers = mp_headers(json_body=True)
+        headers["X-Idempotency-Key"] = str(uuid.uuid4())
 
-        mac_ref = mac.replace(":", "").replace("-", "")
+        mac_ref = mac_normalizado.replace(":", "")
         ip_ref = ip.replace(".", "-")
 
         referencia = (
@@ -462,46 +563,48 @@ href="/criar-pix?plano=10h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={
             "processing_mode": "automatic",
             "external_reference": referencia,
             "total_amount": valor,
-
             "payer": {
-                "email": "rhayr8@gmail.com"
+                "email": MP_PAYER_EMAIL,
             },
-
             "transactions": {
                 "payments": [
                     {
                         "amount": valor,
-
                         "payment_method": {
                             "id": "pix",
-                            "type": "bank_transfer"
-                        }
+                            "type": "bank_transfer",
+                        },
                     }
                 ]
-            }
+            },
         }
 
         resposta = requests.post(
             url,
             headers=headers,
             json=pedido,
-            timeout=20
+            timeout=REQUEST_TIMEOUT,
         )
 
-        dados = resposta.json()
+        try:
+            dados = resposta.json()
+        except ValueError:
+            dados = {
+                "erro": "Resposta invalida do Mercado Pago",
+                "texto": resposta.text[:500],
+            }
 
         print(
             "Resposta criacao PIX:",
             dados,
-            flush=True
+            flush=True,
         )
 
         if resposta.status_code not in (200, 201):
-
             return jsonify({
                 "ok": False,
                 "status_code": resposta.status_code,
-                "mercado_pago": dados
+                "mercado_pago": dados,
             }), resposta.status_code
 
         pagamentos = (
@@ -511,34 +614,32 @@ href="/criar-pix?plano=10h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={
         )
 
         if not pagamentos:
-
             return jsonify({
                 "ok": False,
                 "erro": "Order criada sem pagamento",
-                "order": dados
+                "order": dados,
             }), 500
 
         pagamento = pagamentos[0]
+        metodo = pagamento.get("payment_method", {})
 
-        metodo = pagamento.get(
-            "payment_method",
-            {}
-        )
+        qr_code = metodo.get("qr_code", "")
+        qr_code_base64 = metodo.get("qr_code_base64", "")
+        order_id = dados.get("id", "")
 
-        qr_code = metodo.get(
-            "qr_code",
-            ""
-        )
+        if not order_id:
+            return jsonify({
+                "ok": False,
+                "erro": "Mercado Pago nao retornou o ID da order",
+                "order": dados,
+            }), 500
 
-        qr_code_base64 = metodo.get(
-            "qr_code_base64",
-            ""
-        )
-
-        order_id = dados.get(
-            "id",
-            ""
-        )
+        if not qr_code and not qr_code_base64:
+            return jsonify({
+                "ok": False,
+                "erro": "Mercado Pago nao retornou QR Code PIX",
+                "order": dados,
+            }), 500
 
         # =====================================================
         # TELA DO QR CODE PIX
@@ -546,20 +647,12 @@ href="/criar-pix?plano=10h&mac={mac}&ip={ip}&link-login={link_login}&link-orig={
 
         pagina = f"""
 <!DOCTYPE html>
-
 <html lang="pt-BR">
-
 <head>
-
 <meta charset="UTF-8">
-
-<meta name="viewport"
-content="width=device-width, initial-scale=1.0">
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Internet via PIX</title>
-
 <style>
-
 body {{
     font-family: Arial, sans-serif;
     background: #f2f4f7;
@@ -567,7 +660,6 @@ body {{
     padding: 18px;
     text-align: center;
 }}
-
 .caixa {{
     max-width: 420px;
     margin: 20px auto;
@@ -576,29 +668,24 @@ body {{
     border-radius: 18px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.15);
 }}
-
 h1 {{
     margin-bottom: 8px;
 }}
-
 .plano {{
     font-size: 20px;
     font-weight: bold;
 }}
-
 .valor {{
     font-size: 32px;
     font-weight: bold;
     margin: 15px 0;
     color: #00a650;
 }}
-
 img {{
     width: 260px;
     max-width: 90%;
     margin: 15px 0;
 }}
-
 textarea {{
     box-sizing: border-box;
     width: 100%;
@@ -607,7 +694,6 @@ textarea {{
     border-radius: 8px;
     resize: none;
 }}
-
 button {{
     width: 100%;
     padding: 15px;
@@ -619,26 +705,19 @@ button {{
     background: #00a650;
     color: white;
 }}
-
 .status {{
     margin-top: 20px;
     font-weight: bold;
 }}
-
 .codigo {{
     font-size: 12px;
     margin-top: 15px;
     color: #666;
 }}
-
 </style>
-
 </head>
-
 <body>
-
 <div class="caixa">
-
 <h1>🌐 Internet via PIX</h1>
 
 <div class="plano">
@@ -649,18 +728,14 @@ Plano de {nome_plano}
 R$ {valor.replace(".", ",")}
 </div>
 
-<p>
-Escaneie o QR Code para pagar:
-</p>
+<p>Escaneie o QR Code para pagar:</p>
 
 <img
 src="data:image/png;base64,{qr_code_base64}"
 alt="QR Code PIX"
 >
 
-<p>
-<strong>PIX Copia e Cola</strong>
-</p>
+<p><strong>PIX Copia e Cola</strong></p>
 
 <textarea id="pix" readonly>{qr_code}</textarea>
 
@@ -668,54 +743,37 @@ alt="QR Code PIX"
 Copiar código PIX
 </button>
 
-<div
-class="status"
-id="status-pagamento">
-
+<div class="status" id="status-pagamento">
 Aguardando pagamento...
-
 </div>
 
 <div class="codigo">
-
 Pedido: {order_id}
-
 <br>
-
 Plano: {nome_plano}
-
 <br>
-
 Tempo: {horas} hora(s)
-
 </div>
-
 </div>
 
 <script>
-
 function copiarPix() {{
-
     const codigo =
         document.getElementById("pix").value;
 
     navigator.clipboard
         .writeText(codigo)
         .then(function() {{
-
             alert("Código PIX copiado!");
-
         }});
 }}
 
-
 async function verificarPagamento() {{
-
     try {{
-
         const resposta =
             await fetch(
-                "/status-pix/{order_id}"
+                "/status-pix/{order_id}",
+                {{ cache: "no-store" }}
             );
 
         const dados =
@@ -727,29 +785,23 @@ async function verificarPagamento() {{
             );
 
         if (dados.ok && dados.pago) {{
-
             statusTela.textContent =
                 "Pagamento aprovado! Internet liberada.";
 
             clearInterval(timerPagamento);
 
         }} else if (dados.ok) {{
-
             statusTela.textContent =
                 "Aguardando pagamento...";
-
         }}
 
     }} catch (erro) {{
-
         console.log(
             "Erro na consulta do pagamento:",
             erro
         );
-
     }}
 }}
-
 
 let timerPagamento =
     setInterval(
@@ -758,32 +810,27 @@ let timerPagamento =
     );
 
 verificarPagamento();
-
 </script>
-
 </body>
-
 </html>
 """
-
         return pagina, 200
 
     except Exception as erro:
-
         print(
             "Erro ao criar PIX:",
             str(erro),
-            flush=True
+            flush=True,
         )
 
         return jsonify({
             "ok": False,
-            "erro": str(erro)
+            "erro": str(erro),
         }), 500
 
 
 # =========================================================
-# EXECUÇÃO LOCAL
+# EXECUCAO LOCAL
 # =========================================================
 
 if __name__ == "__main__":
@@ -793,5 +840,5 @@ if __name__ == "__main__":
 
     app.run(
         host="0.0.0.0",
-        port=port
+        port=port,
     )
