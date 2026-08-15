@@ -1,5 +1,7 @@
 import os
+import sqlite3
 import uuid
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import requests
@@ -7,11 +9,19 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
+# =========================================================
+# CONFIGURACAO
+# =========================================================
+
 MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
 MP_PAYER_EMAIL = os.getenv("MP_PAYER_EMAIL", "rhayr8@gmail.com")
 
 MP_API_BASE = "https://api.mercadopago.com"
 REQUEST_TIMEOUT = 20
+
+# SQLite evita perder a liberacao quando o servidor usa mais de um worker.
+# Em hospedagens como Render, /tmp e gravavel.
+DB_PATH = os.getenv("DB_PATH", "/tmp/mikrotik_pix.db")
 
 PLANOS = {
     "1h": {"nome": "1 hora", "valor": "5.00", "horas": 1},
@@ -19,6 +29,63 @@ PLANOS = {
     "5h": {"nome": "5 horas", "valor": "15.00", "horas": 5},
     "10h": {"nome": "10 horas", "valor": "20.00", "horas": 10},
 }
+
+
+# =========================================================
+# BANCO LOCAL DE LIBERACOES
+# =========================================================
+
+def db_conectar():
+    conexao = sqlite3.connect(
+        DB_PATH,
+        timeout=10,
+    )
+    conexao.row_factory = sqlite3.Row
+    return conexao
+
+
+def db_inicializar():
+    with db_conectar() as conexao:
+        conexao.execute("""
+            CREATE TABLE IF NOT EXISTS liberacoes (
+                order_id TEXT PRIMARY KEY,
+                mac TEXT NOT NULL,
+                ip TEXT NOT NULL,
+                plano TEXT NOT NULL,
+                horas INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pendente',
+                criado_em TEXT NOT NULL,
+                confirmado_em TEXT
+            )
+        """)
+
+        conexao.execute("""
+            CREATE INDEX IF NOT EXISTS idx_liberacoes_status
+            ON liberacoes(status)
+        """)
+
+        conexao.execute("""
+            CREATE INDEX IF NOT EXISTS idx_liberacoes_mac
+            ON liberacoes(mac)
+        """)
+
+
+def db_limpar_antigas():
+    limite = (
+        datetime.now(timezone.utc) - timedelta(days=3)
+    ).isoformat()
+
+    with db_conectar() as conexao:
+        conexao.execute(
+            """
+            DELETE FROM liberacoes
+            WHERE criado_em < ?
+            """,
+            (limite,),
+        )
+
+
+db_inicializar()
 
 
 # =========================================================
@@ -34,6 +101,31 @@ def mp_headers(json_body=False):
         headers["Content-Type"] = "application/json"
 
     return headers
+
+
+def normalizar_mac(mac):
+    mac_limpo = (
+        (mac or "")
+        .replace(":", "")
+        .replace("-", "")
+        .replace(".", "")
+        .strip()
+        .upper()
+    )
+
+    if len(mac_limpo) != 12:
+        return ""
+
+    if any(
+        caractere not in "0123456789ABCDEF"
+        for caractere in mac_limpo
+    ):
+        return ""
+
+    return ":".join(
+        mac_limpo[i:i + 2]
+        for i in range(0, 12, 2)
+    )
 
 
 def consultar_order(order_id):
@@ -58,12 +150,9 @@ def consultar_order(order_id):
 
 def order_esta_paga(dados):
     """
-    Considera pago somente quando:
+    Somente libera quando o Mercado Pago informa:
     status = processed
     status_detail = accredited
-
-    Isso evita liberar uma order processada que esteja, por exemplo,
-    parcialmente reembolsada.
     """
     return (
         dados.get("status") == "processed"
@@ -71,31 +160,15 @@ def order_esta_paga(dados):
     )
 
 
-def normalizar_mac(mac):
-    mac_limpo = (
-        (mac or "")
-        .replace(":", "")
-        .replace("-", "")
-        .replace(".", "")
-        .strip()
-        .upper()
-    )
-
-    if len(mac_limpo) != 12:
-        return ""
-
-    return ":".join(
-        mac_limpo[i:i + 2]
-        for i in range(0, 12, 2)
-    )
-
-
 def dados_da_referencia(referencia):
     """
-    Formato criado pelo sistema:
+    Formato usado por este sistema:
     mikrotik_<plano>_<mac-sem-separador>_<ip-com-hifen>_<id>
     """
-    if not referencia or not referencia.startswith("mikrotik_"):
+    if not referencia:
+        return None
+
+    if not referencia.startswith("mikrotik_"):
         return None
 
     partes = referencia.split("_")
@@ -107,7 +180,13 @@ def dados_da_referencia(referencia):
     mac_cliente = normalizar_mac(partes[2])
     ip_cliente = partes[3].replace("-", ".")
 
-    if plano_id not in PLANOS or not mac_cliente:
+    if plano_id not in PLANOS:
+        return None
+
+    if not mac_cliente:
+        return None
+
+    if not ip_cliente:
         return None
 
     return {
@@ -120,41 +199,54 @@ def dados_da_referencia(referencia):
 
 def registrar_liberacao(dados_order, order_id):
     """
-    Registra uma liberacao pendente apenas se a order estiver
-    realmente paga e tiver sido criada por este sistema.
+    Registra uma liberacao apenas quando a order foi realmente
+    processada e creditada pelo Mercado Pago.
     """
     if not order_esta_paga(dados_order):
         return False
 
-    referencia = dados_order.get("external_reference", "")
-    cliente = dados_da_referencia(referencia)
+    referencia = dados_order.get(
+        "external_reference",
+        "",
+    )
+
+    cliente = dados_da_referencia(
+        referencia
+    )
 
     if not cliente:
         return False
 
-    liberacoes = app.config.setdefault(
-        "LIBERACOES_PENDENTES",
-        {},
-    )
+    agora = datetime.now(timezone.utc).isoformat()
 
-    mac_cliente = cliente["mac"]
-
-    # Evita duplicar a mesma liberacao.
-    existente = liberacoes.get(mac_cliente)
-    if existente and existente.get("order_id") == order_id:
-        return True
-
-    liberacoes[mac_cliente] = {
-        "mac": mac_cliente,
-        "ip": cliente["ip"],
-        "plano": cliente["plano"],
-        "horas": cliente["horas"],
-        "order_id": order_id,
-    }
+    with db_conectar() as conexao:
+        conexao.execute(
+            """
+            INSERT INTO liberacoes (
+                order_id,
+                mac,
+                ip,
+                plano,
+                horas,
+                status,
+                criado_em
+            )
+            VALUES (?, ?, ?, ?, ?, 'pendente', ?)
+            ON CONFLICT(order_id) DO NOTHING
+            """,
+            (
+                order_id,
+                cliente["mac"],
+                cliente["ip"],
+                cliente["plano"],
+                cliente["horas"],
+                agora,
+            ),
+        )
 
     print(
-        "LIBERACAO PENDENTE | "
-        f"MAC={mac_cliente} | "
+        "LIBERACAO REGISTRADA | "
+        f"MAC={cliente['mac']} | "
         f"IP={cliente['ip']} | "
         f"PLANO={cliente['plano']} | "
         f"HORAS={cliente['horas']} | "
@@ -165,13 +257,99 @@ def registrar_liberacao(dados_order, order_id):
     return True
 
 
+def buscar_liberacao_por_order(order_id):
+    with db_conectar() as conexao:
+        linha = conexao.execute(
+            """
+            SELECT *
+            FROM liberacoes
+            WHERE order_id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+
+    return linha
+
+
+def buscar_proxima_liberacao():
+    db_limpar_antigas()
+
+    with db_conectar() as conexao:
+        linha = conexao.execute(
+            """
+            SELECT *
+            FROM liberacoes
+            WHERE status = 'pendente'
+            ORDER BY criado_em ASC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    return linha
+
+
+def confirmar_liberacao_db(mac, order_id=""):
+    agora = datetime.now(timezone.utc).isoformat()
+
+    with db_conectar() as conexao:
+        if order_id:
+            linha = conexao.execute(
+                """
+                SELECT *
+                FROM liberacoes
+                WHERE order_id = ?
+                  AND mac = ?
+                  AND status = 'pendente'
+                """,
+                (order_id, mac),
+            ).fetchone()
+        else:
+            linha = conexao.execute(
+                """
+                SELECT *
+                FROM liberacoes
+                WHERE mac = ?
+                  AND status = 'pendente'
+                ORDER BY criado_em ASC
+                LIMIT 1
+                """,
+                (mac,),
+            ).fetchone()
+
+        if not linha:
+            return None
+
+        conexao.execute(
+            """
+            UPDATE liberacoes
+            SET status = 'confirmada',
+                confirmado_em = ?
+            WHERE order_id = ?
+            """,
+            (
+                agora,
+                linha["order_id"],
+            ),
+        )
+
+    return linha
+
+
 # =========================================================
-# PÁGINA PRINCIPAL
+# PAGINA PRINCIPAL / SAUDE
 # =========================================================
 
 @app.route("/", methods=["GET"])
 def home():
     return "Mikrotik Hotspot", 200
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "ok": True,
+        "servico": "mikrotik-pix",
+    }), 200
 
 
 # =========================================================
@@ -181,12 +359,15 @@ def home():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     """
-    O webhook do Mercado Pago informa principalmente o ID do recurso.
-    Por seguranca e confiabilidade, o servidor consulta a order
-    diretamente na API do Mercado Pago antes de liberar o cliente.
+    O webhook recebe a notificacao do Mercado Pago.
+    Para nao confiar somente no corpo recebido, o sistema pega
+    o data.id e consulta a order diretamente na API oficial.
     """
     try:
-        dados_webhook = request.get_json(silent=True) or {}
+        dados_webhook = (
+            request.get_json(silent=True)
+            or {}
+        )
 
         print(
             "Webhook recebido:",
@@ -194,23 +375,41 @@ def webhook():
             flush=True,
         )
 
-        data_id = request.args.get("data.id")
+        data_id = request.args.get(
+            "data.id"
+        )
 
         if not data_id:
-            data = dados_webhook.get("data", {})
+            data = dados_webhook.get(
+                "data",
+                {},
+            )
+
             if isinstance(data, dict):
                 data_id = data.get("id")
 
-        tipo = request.args.get("type") or dados_webhook.get("type")
-        action = dados_webhook.get("action", "")
+        tipo = (
+            request.args.get("type")
+            or dados_webhook.get("type")
+            or ""
+        )
+
+        action = dados_webhook.get(
+            "action",
+            "",
+        )
 
         print(
-            f"Tipo={tipo} | Action={action} | ID={data_id}",
+            f"WEBHOOK | TIPO={tipo} | "
+            f"ACTION={action} | "
+            f"ID={data_id}",
             flush=True,
         )
 
-        # Para Orders API, so processamos notificacoes de order.
-        if tipo == "order" or action.startswith("order."):
+        if (
+            tipo == "order"
+            or action.startswith("order.")
+        ):
             if not data_id:
                 return jsonify({
                     "status": "received",
@@ -220,16 +419,19 @@ def webhook():
 
             if not MP_ACCESS_TOKEN:
                 print(
-                    "Webhook: MP_ACCESS_TOKEN nao configurado",
+                    "MP_ACCESS_TOKEN nao configurado",
                     flush=True,
                 )
+
                 return jsonify({
                     "status": "received",
                     "type": "order",
                     "id": data_id,
                 }), 200
 
-            resposta, dados_order = consultar_order(data_id)
+            resposta, dados_order = (
+                consultar_order(data_id)
+            )
 
             if resposta.status_code == 200:
                 registrar_liberacao(
@@ -238,7 +440,7 @@ def webhook():
                 )
             else:
                 print(
-                    "Webhook: falha ao consultar order | "
+                    "Falha ao consultar order | "
                     f"HTTP={resposta.status_code} | "
                     f"DADOS={dados_order}",
                     flush=True,
@@ -250,8 +452,7 @@ def webhook():
                 "id": data_id,
             }), 200
 
-        # Mantemos resposta 200 para outros eventos,
-        # mas eles nao liberam internet.
+        # Outros tipos sao recebidos, mas nao liberam internet.
         return jsonify({
             "status": "received",
             "type": tipo,
@@ -261,12 +462,13 @@ def webhook():
     except Exception as erro:
         print(
             "Erro no webhook:",
-            str(erro),
+            repr(erro),
             flush=True,
         )
 
-        # Mercado Pago espera 200/201 para confirmar o recebimento.
-        # A consulta /status-pix tambem serve como redundancia.
+        # Retorna 200 para evitar uma fila infinita de repeticoes.
+        # O /status-pix tambem consulta o Mercado Pago e funciona
+        # como redundancia para registrar a liberacao.
         return jsonify({
             "status": "received",
             "error": str(erro),
@@ -277,7 +479,10 @@ def webhook():
 # CONSULTAR STATUS DO PIX
 # =========================================================
 
-@app.route("/status-pix/<order_id>", methods=["GET"])
+@app.route(
+    "/status-pix/<order_id>",
+    methods=["GET"],
+)
 def status_pix(order_id):
     try:
         if not MP_ACCESS_TOKEN:
@@ -286,7 +491,9 @@ def status_pix(order_id):
                 "erro": "MP_ACCESS_TOKEN nao configurado",
             }), 500
 
-        resposta, dados = consultar_order(order_id)
+        resposta, dados = consultar_order(
+            order_id
+        )
 
         if resposta.status_code != 200:
             return jsonify({
@@ -295,9 +502,19 @@ def status_pix(order_id):
                 "mercado_pago": dados,
             }), resposta.status_code
 
-        status = dados.get("status", "")
-        status_detail = dados.get("status_detail", "")
-        pago = order_esta_paga(dados)
+        status = dados.get(
+            "status",
+            "",
+        )
+
+        status_detail = dados.get(
+            "status_detail",
+            "",
+        )
+
+        pago = order_esta_paga(
+            dados
+        )
 
         if pago:
             registrar_liberacao(
@@ -305,17 +522,27 @@ def status_pix(order_id):
                 order_id,
             )
 
+        liberacao = buscar_liberacao_por_order(
+            order_id
+        )
+
+        liberada = bool(
+            liberacao
+            and liberacao["status"] == "confirmada"
+        )
+
         return jsonify({
             "ok": True,
             "status": status,
             "status_detail": status_detail,
             "pago": pago,
+            "liberada": liberada,
         }), 200
 
     except Exception as erro:
         print(
             "Erro no status PIX:",
-            str(erro),
+            repr(erro),
             flush=True,
         )
 
@@ -329,73 +556,117 @@ def status_pix(order_id):
 # MIKROTIK - CONSULTAR LIBERACAO PENDENTE
 # =========================================================
 
-@app.route("/liberacao-pendente", methods=["GET"])
+@app.route(
+    "/liberacao-pendente",
+    methods=["GET"],
+)
 def liberacao_pendente():
-    liberacoes = app.config.setdefault(
-        "LIBERACOES_PENDENTES",
-        {},
-    )
+    try:
+        dados = buscar_proxima_liberacao()
 
-    if not liberacoes:
+        if not dados:
+            return jsonify({
+                "ok": True,
+                "pendente": False,
+            }), 200
+
         return jsonify({
             "ok": True,
-            "pendente": False,
+            "pendente": True,
+            "mac": dados["mac"],
+            "ip": dados["ip"],
+            "plano": dados["plano"],
+            "horas": dados["horas"],
+            "order_id": dados["order_id"],
         }), 200
 
-    mac, dados = next(iter(liberacoes.items()))
+    except Exception as erro:
+        print(
+            "Erro liberacao-pendente:",
+            repr(erro),
+            flush=True,
+        )
 
-    return jsonify({
-        "ok": True,
-        "pendente": True,
-        "mac": dados.get("mac", mac),
-        "ip": dados.get("ip", ""),
-        "plano": dados.get("plano", ""),
-        "horas": dados.get("horas", 0),
-        "order_id": dados.get("order_id", ""),
-    }), 200
+        return jsonify({
+            "ok": False,
+            "erro": str(erro),
+        }), 500
 
 
 # =========================================================
 # MIKROTIK - CONFIRMAR LIBERACAO
 # =========================================================
 
-@app.route("/confirmar-liberacao", methods=["GET"])
+@app.route(
+    "/confirmar-liberacao",
+    methods=["GET", "POST"],
+)
 def confirmar_liberacao():
-    mac = normalizar_mac(
-        request.args.get("mac", "")
-    )
+    try:
+        mac = normalizar_mac(
+            request.args.get(
+                "mac",
+                "",
+            )
+        )
 
-    if not mac:
+        order_id = request.args.get(
+            "order_id",
+            "",
+        ).strip()
+
+        if not mac:
+            return jsonify({
+                "ok": False,
+                "erro": "MAC nao informado ou invalido",
+            }), 400
+
+        liberacao = confirmar_liberacao_db(
+            mac,
+            order_id,
+        )
+
+        if not liberacao:
+            return jsonify({
+                "ok": False,
+                "erro": "Liberacao pendente nao encontrada",
+            }), 404
+
+        print(
+            "LIBERACAO CONFIRMADA PELO MIKROTIK | "
+            f"MAC={mac} | "
+            f"ORDER={liberacao['order_id']}",
+            flush=True,
+        )
+
+        return jsonify({
+            "ok": True,
+            "confirmado": True,
+            "mac": mac,
+            "order_id": liberacao["order_id"],
+        }), 200
+
+    except Exception as erro:
+        print(
+            "Erro confirmar-liberacao:",
+            repr(erro),
+            flush=True,
+        )
+
         return jsonify({
             "ok": False,
-            "erro": "MAC nao informado ou invalido",
-        }), 400
-
-    liberacoes = app.config.setdefault(
-        "LIBERACOES_PENDENTES",
-        {},
-    )
-
-    if mac not in liberacoes:
-        return jsonify({
-            "ok": False,
-            "erro": "Liberacao nao encontrada",
-        }), 404
-
-    liberacoes.pop(mac, None)
-
-    return jsonify({
-        "ok": True,
-        "confirmado": True,
-        "mac": mac,
-    }), 200
+            "erro": str(erro),
+        }), 500
 
 
 # =========================================================
 # CRIAR PIX / ESCOLHER PLANO
 # =========================================================
 
-@app.route("/criar-pix", methods=["GET"])
+@app.route(
+    "/criar-pix",
+    methods=["GET"],
+)
 def criar_pix():
     try:
         if not MP_ACCESS_TOKEN:
@@ -405,29 +676,56 @@ def criar_pix():
             }), 500
 
         # Dados enviados pelo Hotspot MikroTik.
-        mac = request.args.get("mac", "").strip()
-        ip = request.args.get("ip", "").strip()
-        link_login = request.args.get("link-login", "").strip()
-        link_orig = request.args.get("link-orig", "").strip()
+        mac_original = request.args.get(
+            "mac",
+            "",
+        ).strip()
 
-        mac_normalizado = normalizar_mac(mac)
+        ip = request.args.get(
+            "ip",
+            "",
+        ).strip()
 
-        if mac and mac_normalizado:
-            mac = mac_normalizado
+        link_login = request.args.get(
+            "link-login",
+            "",
+        ).strip()
+
+        link_orig = request.args.get(
+            "link-orig",
+            "",
+        ).strip()
+
+        mac_normalizado = normalizar_mac(
+            mac_original
+        )
+
+        mac = (
+            mac_normalizado
+            if mac_normalizado
+            else mac_original
+        )
 
         print(
-            f"CLIENTE HOTSPOT | MAC={mac} | IP={ip} | "
-            f"LINK_LOGIN={link_login} | LINK_ORIG={link_orig}",
+            f"CLIENTE HOTSPOT | "
+            f"MAC={mac} | "
+            f"IP={ip} | "
+            f"LINK_LOGIN={link_login} | "
+            f"LINK_ORIG={link_orig}",
             flush=True,
         )
 
-        plano_id = request.args.get("plano", "")
+        plano_id = request.args.get(
+            "plano",
+            "",
+        )
 
         # =====================================================
         # TELA PARA ESCOLHER O PLANO
         # =====================================================
 
         if plano_id not in PLANOS:
+
             def link_plano(id_plano):
                 query = urlencode({
                     "plano": id_plano,
@@ -436,15 +734,22 @@ def criar_pix():
                     "link-login": link_login,
                     "link-orig": link_orig,
                 })
-                return f"/criar-pix?{query}"
+
+                return (
+                    f"/criar-pix?{query}"
+                )
 
             pagina_planos = f"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 <title>Internet via PIX</title>
+
 <style>
 body {{
     font-family: Arial, sans-serif;
@@ -453,6 +758,7 @@ body {{
     padding: 18px;
     text-align: center;
 }}
+
 .caixa {{
     max-width: 420px;
     margin: 20px auto;
@@ -461,13 +767,16 @@ body {{
     border-radius: 18px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.15);
 }}
+
 h1 {{
     margin-bottom: 8px;
 }}
+
 .subtitulo {{
     color: #555;
     margin-bottom: 22px;
 }}
+
 .plano {{
     display: block;
     text-decoration: none;
@@ -479,41 +788,61 @@ h1 {{
     font-size: 20px;
     font-weight: bold;
 }}
+
 .plano span {{
     display: block;
     color: #00a650;
     font-size: 25px;
     margin-top: 5px;
 }}
+
 .plano:hover {{
     background: #f0fff7;
 }}
 </style>
 </head>
+
 <body>
 <div class="caixa">
-<h1>🌐 Internet Wi-Fi</h1>
-<p class="subtitulo">Escolha seu plano de acesso</p>
 
-<a class="plano" href="{link_plano('1h')}">
+<h1>🌐 Internet Wi-Fi</h1>
+
+<p class="subtitulo">
+Escolha seu plano de acesso
+</p>
+
+<a
+    class="plano"
+    href="{link_plano('1h')}"
+>
 1 hora
 <span>R$ 5,00</span>
 </a>
 
-<a class="plano" href="{link_plano('2h')}">
+<a
+    class="plano"
+    href="{link_plano('2h')}"
+>
 2 horas
 <span>R$ 10,00</span>
 </a>
 
-<a class="plano" href="{link_plano('5h')}">
+<a
+    class="plano"
+    href="{link_plano('5h')}"
+>
 5 horas
 <span>R$ 15,00</span>
 </a>
 
-<a class="plano" href="{link_plano('10h')}">
+<a
+    class="plano"
+    href="{link_plano('10h')}"
+>
 10 horas
 <span>R$ 20,00</span>
 </a>
+
 </div>
 </body>
 </html>
@@ -524,10 +853,21 @@ h1 {{
         # PLANO ESCOLHIDO
         # =====================================================
 
-        plano = PLANOS[plano_id]
-        valor = plano["valor"]
-        nome_plano = plano["nome"]
-        horas = plano["horas"]
+        plano = PLANOS[
+            plano_id
+        ]
+
+        valor = plano[
+            "valor"
+        ]
+
+        nome_plano = plano[
+            "nome"
+        ]
+
+        horas = plano[
+            "horas"
+        ]
 
         if not mac_normalizado:
             return jsonify({
@@ -545,16 +885,33 @@ h1 {{
         # CRIAR ORDER PIX NO MERCADO PAGO
         # =====================================================
 
-        url = f"{MP_API_BASE}/v1/orders"
+        url = (
+            f"{MP_API_BASE}/v1/orders"
+        )
 
-        headers = mp_headers(json_body=True)
-        headers["X-Idempotency-Key"] = str(uuid.uuid4())
+        headers = mp_headers(
+            json_body=True
+        )
 
-        mac_ref = mac_normalizado.replace(":", "")
-        ip_ref = ip.replace(".", "-")
+        headers[
+            "X-Idempotency-Key"
+        ] = str(
+            uuid.uuid4()
+        )
+
+        mac_ref = (
+            mac_normalizado
+            .replace(":", "")
+        )
+
+        ip_ref = ip.replace(
+            ".",
+            "-",
+        )
 
         referencia = (
-            f"mikrotik_{plano_id}_{mac_ref}_{ip_ref}_"
+            f"mikrotik_{plano_id}_"
+            f"{mac_ref}_{ip_ref}_"
             f"{uuid.uuid4().hex[:8]}"
         )
 
@@ -563,13 +920,16 @@ h1 {{
             "processing_mode": "automatic",
             "external_reference": referencia,
             "total_amount": valor,
+
             "payer": {
                 "email": MP_PAYER_EMAIL,
             },
+
             "transactions": {
                 "payments": [
                     {
                         "amount": valor,
+
                         "payment_method": {
                             "id": "pix",
                             "type": "bank_transfer",
@@ -600,7 +960,10 @@ h1 {{
             flush=True,
         )
 
-        if resposta.status_code not in (200, 201):
+        if resposta.status_code not in (
+            200,
+            201,
+        ):
             return jsonify({
                 "ok": False,
                 "status_code": resposta.status_code,
@@ -609,8 +972,14 @@ h1 {{
 
         pagamentos = (
             dados
-            .get("transactions", {})
-            .get("payments", [])
+            .get(
+                "transactions",
+                {},
+            )
+            .get(
+                "payments",
+                [],
+            )
         )
 
         if not pagamentos:
@@ -621,11 +990,26 @@ h1 {{
             }), 500
 
         pagamento = pagamentos[0]
-        metodo = pagamento.get("payment_method", {})
 
-        qr_code = metodo.get("qr_code", "")
-        qr_code_base64 = metodo.get("qr_code_base64", "")
-        order_id = dados.get("id", "")
+        metodo = pagamento.get(
+            "payment_method",
+            {},
+        )
+
+        qr_code = metodo.get(
+            "qr_code",
+            "",
+        )
+
+        qr_code_base64 = metodo.get(
+            "qr_code_base64",
+            "",
+        )
+
+        order_id = dados.get(
+            "id",
+            "",
+        )
 
         if not order_id:
             return jsonify({
@@ -634,7 +1018,10 @@ h1 {{
                 "order": dados,
             }), 500
 
-        if not qr_code and not qr_code_base64:
+        if (
+            not qr_code
+            and not qr_code_base64
+        ):
             return jsonify({
                 "ok": False,
                 "erro": "Mercado Pago nao retornou QR Code PIX",
@@ -645,13 +1032,27 @@ h1 {{
         # TELA DO QR CODE PIX
         # =====================================================
 
+        imagem_qr = ""
+
+        if qr_code_base64:
+            imagem_qr = f"""
+<img
+    src="data:image/png;base64,{qr_code_base64}"
+    alt="QR Code PIX"
+>
+"""
+
         pagina = f"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 <title>Internet via PIX</title>
+
 <style>
 body {{
     font-family: Arial, sans-serif;
@@ -660,6 +1061,7 @@ body {{
     padding: 18px;
     text-align: center;
 }}
+
 .caixa {{
     max-width: 420px;
     margin: 20px auto;
@@ -668,24 +1070,29 @@ body {{
     border-radius: 18px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.15);
 }}
+
 h1 {{
     margin-bottom: 8px;
 }}
+
 .plano {{
     font-size: 20px;
     font-weight: bold;
 }}
+
 .valor {{
     font-size: 32px;
     font-weight: bold;
     margin: 15px 0;
     color: #00a650;
 }}
+
 img {{
     width: 260px;
     max-width: 90%;
     margin: 15px 0;
 }}
+
 textarea {{
     box-sizing: border-box;
     width: 100%;
@@ -694,6 +1101,7 @@ textarea {{
     border-radius: 8px;
     resize: none;
 }}
+
 button {{
     width: 100%;
     padding: 15px;
@@ -705,10 +1113,13 @@ button {{
     background: #00a650;
     color: white;
 }}
+
 .status {{
     margin-top: 20px;
     font-weight: bold;
+    font-size: 18px;
 }}
+
 .codigo {{
     font-size: 12px;
     margin-top: 15px;
@@ -716,8 +1127,11 @@ button {{
 }}
 </style>
 </head>
+
 <body>
+
 <div class="caixa">
+
 <h1>🌐 Internet via PIX</h1>
 
 <div class="plano">
@@ -728,22 +1142,29 @@ Plano de {nome_plano}
 R$ {valor.replace(".", ",")}
 </div>
 
-<p>Escaneie o QR Code para pagar:</p>
+<p>
+Escaneie o QR Code para pagar:
+</p>
 
-<img
-src="data:image/png;base64,{qr_code_base64}"
-alt="QR Code PIX"
->
+{imagem_qr}
 
-<p><strong>PIX Copia e Cola</strong></p>
+<p>
+<strong>PIX Copia e Cola</strong>
+</p>
 
-<textarea id="pix" readonly>{qr_code}</textarea>
+<textarea
+    id="pix"
+    readonly
+>{qr_code}</textarea>
 
 <button onclick="copiarPix()">
 Copiar código PIX
 </button>
 
-<div class="status" id="status-pagamento">
+<div
+    class="status"
+    id="status-pagamento"
+>
 Aguardando pagamento...
 </div>
 
@@ -754,26 +1175,34 @@ Plano: {nome_plano}
 <br>
 Tempo: {horas} hora(s)
 </div>
+
 </div>
 
 <script>
 function copiarPix() {{
     const codigo =
-        document.getElementById("pix").value;
+        document.getElementById(
+            "pix"
+        ).value;
 
     navigator.clipboard
         .writeText(codigo)
         .then(function() {{
-            alert("Código PIX copiado!");
+            alert(
+                "Código PIX copiado!"
+            );
         }});
 }}
+
 
 async function verificarPagamento() {{
     try {{
         const resposta =
             await fetch(
                 "/status-pix/{order_id}",
-                {{ cache: "no-store" }}
+                {{
+                    cache: "no-store"
+                }}
             );
 
         const dados =
@@ -784,11 +1213,24 @@ async function verificarPagamento() {{
                 "status-pagamento"
             );
 
-        if (dados.ok && dados.pago) {{
+        if (
+            dados.ok
+            && dados.pago
+            && dados.liberada
+        ) {{
             statusTela.textContent =
                 "Pagamento aprovado! Internet liberada.";
 
-            clearInterval(timerPagamento);
+            clearInterval(
+                timerPagamento
+            );
+
+        }} else if (
+            dados.ok
+            && dados.pago
+        ) {{
+            statusTela.textContent =
+                "Pagamento aprovado! Liberando internet...";
 
         }} else if (dados.ok) {{
             statusTela.textContent =
@@ -803,6 +1245,7 @@ async function verificarPagamento() {{
     }}
 }}
 
+
 let timerPagamento =
     setInterval(
         verificarPagamento,
@@ -811,6 +1254,7 @@ let timerPagamento =
 
 verificarPagamento();
 </script>
+
 </body>
 </html>
 """
@@ -819,7 +1263,7 @@ verificarPagamento();
     except Exception as erro:
         print(
             "Erro ao criar PIX:",
-            str(erro),
+            repr(erro),
             flush=True,
         )
 
@@ -835,7 +1279,10 @@ verificarPagamento();
 
 if __name__ == "__main__":
     port = int(
-        os.environ.get("PORT", 10000)
+        os.environ.get(
+            "PORT",
+            10000,
+        )
     )
 
     app.run(
