@@ -69,6 +69,24 @@ def db_inicializar():
             ON liberacoes(mac)
         """)
 
+        # Fila de acessos temporarios. Ela e criada somente depois
+        # que o Mercado Pago devolve uma order PIX valida.
+        conexao.execute("""
+            CREATE TABLE IF NOT EXISTS acessos_temporarios (
+                order_id TEXT PRIMARY KEY,
+                mac TEXT NOT NULL,
+                ip TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pendente',
+                criado_em TEXT NOT NULL,
+                confirmado_em TEXT
+            )
+        """)
+
+        conexao.execute("""
+            CREATE INDEX IF NOT EXISTS idx_acessos_temporarios_status
+            ON acessos_temporarios(status)
+        """)
+
 
 def db_limpar_antigas():
     limite = (
@@ -79,6 +97,14 @@ def db_limpar_antigas():
         conexao.execute(
             """
             DELETE FROM liberacoes
+            WHERE criado_em < ?
+            """,
+            (limite,),
+        )
+
+        conexao.execute(
+            """
+            DELETE FROM acessos_temporarios
             WHERE criado_em < ?
             """,
             (limite,),
@@ -255,6 +281,103 @@ def registrar_liberacao(dados_order, order_id):
     )
 
     return True
+
+
+def registrar_acesso_temporario(order_id, mac, ip):
+    """
+    Coloca o cliente na fila de internet temporaria SOMENTE depois
+    que uma order PIX valida foi criada.
+    """
+    mac = normalizar_mac(mac)
+
+    if not order_id or not mac or not ip:
+        return False
+
+    agora = datetime.now(timezone.utc).isoformat()
+
+    with db_conectar() as conexao:
+        conexao.execute(
+            """
+            INSERT INTO acessos_temporarios (
+                order_id,
+                mac,
+                ip,
+                status,
+                criado_em
+            )
+            VALUES (?, ?, ?, 'pendente', ?)
+            ON CONFLICT(order_id) DO NOTHING
+            """,
+            (
+                order_id,
+                mac,
+                ip,
+                agora,
+            ),
+        )
+
+    print(
+        "ACESSO TEMPORARIO SOLICITADO | "
+        f"MAC={mac} | IP={ip} | ORDER={order_id}",
+        flush=True,
+    )
+
+    return True
+
+
+def buscar_proximo_acesso_temporario():
+    db_limpar_antigas()
+
+    with db_conectar() as conexao:
+        linha = conexao.execute(
+            """
+            SELECT *
+            FROM acessos_temporarios
+            WHERE status = 'pendente'
+            ORDER BY criado_em ASC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    return linha
+
+
+def confirmar_acesso_temporario_db(mac, order_id):
+    mac = normalizar_mac(mac)
+    agora = datetime.now(timezone.utc).isoformat()
+
+    if not mac or not order_id:
+        return None
+
+    with db_conectar() as conexao:
+        linha = conexao.execute(
+            """
+            SELECT *
+            FROM acessos_temporarios
+            WHERE order_id = ?
+              AND mac = ?
+              AND status = 'pendente'
+            """,
+            (order_id, mac),
+        ).fetchone()
+
+        if not linha:
+            return None
+
+        conexao.execute(
+            """
+            UPDATE acessos_temporarios
+            SET status = 'confirmada',
+                confirmado_em = ?
+            WHERE order_id = ?
+            """,
+            (
+                agora,
+                order_id,
+            ),
+        )
+
+    return linha
 
 
 def buscar_liberacao_por_order(order_id):
@@ -473,6 +596,112 @@ def webhook():
             "status": "received",
             "error": str(erro),
         }), 200
+
+
+# =========================================================
+# MIKROTIK - JANELA TEMPORARIA PARA PAGAMENTO
+# =========================================================
+
+@app.route(
+    "/acesso-temporario-pendente",
+    methods=["GET"],
+)
+def acesso_temporario_pendente():
+    """
+    O MikroTik consulta esta rota e, quando houver uma order PIX
+    recem-criada, libera somente 2 minutos para aquele MAC/IP.
+    """
+    try:
+        dados = buscar_proximo_acesso_temporario()
+
+        if not dados:
+            return jsonify({
+                "ok": True,
+                "pendente": False,
+            }), 200
+
+        return jsonify({
+            "ok": True,
+            "pendente": True,
+            "mac": dados["mac"],
+            "ip": dados["ip"],
+            "order_id": dados["order_id"],
+            "segundos": 120,
+            "rate_limit": "1M/1M",
+        }), 200
+
+    except Exception as erro:
+        print(
+            "Erro acesso-temporario-pendente:",
+            repr(erro),
+            flush=True,
+        )
+
+        return jsonify({
+            "ok": False,
+            "erro": str(erro),
+        }), 500
+
+
+@app.route(
+    "/confirmar-acesso-temporario",
+    methods=["GET", "POST"],
+)
+def confirmar_acesso_temporario():
+    try:
+        mac = normalizar_mac(
+            request.args.get(
+                "mac",
+                "",
+            )
+        )
+
+        order_id = request.args.get(
+            "order_id",
+            "",
+        ).strip()
+
+        if not mac or not order_id:
+            return jsonify({
+                "ok": False,
+                "erro": "MAC ou order_id invalido",
+            }), 400
+
+        acesso = confirmar_acesso_temporario_db(
+            mac,
+            order_id,
+        )
+
+        if not acesso:
+            return jsonify({
+                "ok": False,
+                "erro": "Acesso temporario pendente nao encontrado",
+            }), 404
+
+        print(
+            "ACESSO TEMPORARIO CONFIRMADO PELO MIKROTIK | "
+            f"MAC={mac} | ORDER={order_id}",
+            flush=True,
+        )
+
+        return jsonify({
+            "ok": True,
+            "confirmado": True,
+            "mac": mac,
+            "order_id": order_id,
+        }), 200
+
+    except Exception as erro:
+        print(
+            "Erro confirmar-acesso-temporario:",
+            repr(erro),
+            flush=True,
+        )
+
+        return jsonify({
+            "ok": False,
+            "erro": str(erro),
+        }), 500
 
 
 # =========================================================
@@ -1029,6 +1258,21 @@ Escolha seu plano de acesso
             }), 500
 
         # =====================================================
+        # SOLICITA 2 MINUTOS DE INTERNET PARA O PAGAMENTO
+        # =====================================================
+        #
+        # IMPORTANTE:
+        # - isso acontece somente APOS a order PIX existir;
+        # - conectar ao Wi-Fi ou abrir a pagina de planos nao libera nada;
+        # - o MikroTik pega esta solicitacao pela rota
+        #   /acesso-temporario-pendente.
+        registrar_acesso_temporario(
+            order_id,
+            mac_normalizado,
+            ip,
+        )
+
+        # =====================================================
         # TELA DO QR CODE PIX
         # =====================================================
 
@@ -1167,6 +1411,11 @@ Copiar código PIX
 >
 Aguardando pagamento...
 </div>
+
+<p>
+Você recebeu uma janela temporária de até 2 minutos
+para abrir o aplicativo do banco e concluir o PIX.
+</p>
 
 <div class="codigo">
 Pedido: {order_id}
