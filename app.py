@@ -599,6 +599,148 @@ def webhook():
 
 
 # =========================================================
+# CLIENTE - SOLICITAR JANELA TEMPORARIA PARA PAGAMENTO
+# =========================================================
+
+@app.route(
+    "/solicitar-acesso-temporario",
+    methods=["GET", "POST"],
+)
+def solicitar_acesso_temporario():
+    """
+    So coloca o cliente na fila dos 2 minutos quando ele toca no
+    botao da tela do QR Code. Antes disso, nenhuma internet geral
+    e liberada.
+
+    A order e consultada diretamente no Mercado Pago e o MAC/IP
+    recebidos precisam ser os mesmos gravados na external_reference.
+    """
+    try:
+        if not MP_ACCESS_TOKEN:
+            return jsonify({
+                "ok": False,
+                "erro": "MP_ACCESS_TOKEN nao configurado",
+            }), 500
+
+        order_id = request.args.get(
+            "order_id",
+            "",
+        ).strip()
+
+        mac = normalizar_mac(
+            request.args.get(
+                "mac",
+                "",
+            )
+        )
+
+        ip = request.args.get(
+            "ip",
+            "",
+        ).strip()
+
+        if not order_id or not mac or not ip:
+            return jsonify({
+                "ok": False,
+                "erro": "order_id, MAC ou IP invalido",
+            }), 400
+
+        resposta, dados_order = consultar_order(
+            order_id
+        )
+
+        if resposta.status_code != 200:
+            return jsonify({
+                "ok": False,
+                "erro": "Nao foi possivel validar a order no Mercado Pago",
+                "status_code": resposta.status_code,
+            }), resposta.status_code
+
+        referencia = dados_order.get(
+            "external_reference",
+            "",
+        )
+
+        cliente = dados_da_referencia(
+            referencia
+        )
+
+        if not cliente:
+            return jsonify({
+                "ok": False,
+                "erro": "Order sem referencia valida para este hotspot",
+            }), 400
+
+        if (
+            cliente["mac"] != mac
+            or cliente["ip"] != ip
+        ):
+            return jsonify({
+                "ok": False,
+                "erro": "MAC/IP nao correspondem a order",
+            }), 403
+
+        # Se o pagamento ja foi aprovado, nao faz sentido abrir
+        # uma janela temporaria. Registra a liberacao definitiva.
+        if order_esta_paga(dados_order):
+            registrar_liberacao(
+                dados_order,
+                order_id,
+            )
+
+            return jsonify({
+                "ok": True,
+                "pago": True,
+                "solicitado": False,
+                "mensagem": "Pagamento ja aprovado. Liberando o plano comprado.",
+            }), 200
+
+        status_order = (
+            dados_order.get("status")
+            or ""
+        ).lower()
+
+        if status_order in {
+            "cancelled",
+            "canceled",
+            "failed",
+            "expired",
+            "rejected",
+        }:
+            return jsonify({
+                "ok": False,
+                "erro": "Esta order nao esta mais disponivel para pagamento",
+                "status": status_order,
+            }), 409
+
+        registrar_acesso_temporario(
+            order_id,
+            mac,
+            ip,
+        )
+
+        return jsonify({
+            "ok": True,
+            "pago": False,
+            "solicitado": True,
+            "segundos": 120,
+            "mensagem": "Internet temporaria solicitada. Abra o banco e conclua o PIX.",
+        }), 200
+
+    except Exception as erro:
+        print(
+            "Erro solicitar-acesso-temporario:",
+            repr(erro),
+            flush=True,
+        )
+
+        return jsonify({
+            "ok": False,
+            "erro": str(erro),
+        }), 500
+
+
+# =========================================================
 # MIKROTIK - JANELA TEMPORARIA PARA PAGAMENTO
 # =========================================================
 
@@ -1258,21 +1400,6 @@ Escolha seu plano de acesso
             }), 500
 
         # =====================================================
-        # SOLICITA 2 MINUTOS DE INTERNET PARA O PAGAMENTO
-        # =====================================================
-        #
-        # IMPORTANTE:
-        # - isso acontece somente APOS a order PIX existir;
-        # - conectar ao Wi-Fi ou abrir a pagina de planos nao libera nada;
-        # - o MikroTik pega esta solicitacao pela rota
-        #   /acesso-temporario-pendente.
-        registrar_acesso_temporario(
-            order_id,
-            mac_normalizado,
-            ip,
-        )
-
-        # =====================================================
         # TELA DO QR CODE PIX
         # =====================================================
 
@@ -1285,6 +1412,16 @@ Escolha seu plano de acesso
     alt="QR Code PIX"
 >
 """
+
+        query_acesso_temporario = urlencode({
+            "order_id": order_id,
+            "mac": mac_normalizado,
+            "ip": ip,
+        })
+
+        url_acesso_temporario = (
+            f"/solicitar-acesso-temporario?{query_acesso_temporario}"
+        )
 
         pagina = f"""
 <!DOCTYPE html>
@@ -1364,6 +1501,22 @@ button {{
     font-size: 18px;
 }}
 
+.btn-temporario {{
+    background: #1468d4;
+}}
+
+.btn-temporario:disabled {{
+    opacity: 0.65;
+    cursor: default;
+}}
+
+.aviso-temporario {{
+    margin-top: 12px;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #555;
+}}
+
 .codigo {{
     font-size: 12px;
     margin-top: 15px;
@@ -1405,17 +1558,29 @@ Escaneie o QR Code para pagar:
 Copiar código PIX
 </button>
 
+<button
+    id="btn-acesso-temporario"
+    class="btn-temporario"
+    onclick="liberarInternetPagamento()"
+>
+LIBERAR INTERNET POR 2 MINUTOS PARA PAGAR
+</button>
+
+<div
+    class="aviso-temporario"
+    id="aviso-temporario"
+>
+Primeiro copie o código PIX. Depois toque no botão acima somente
+quando estiver pronto para abrir o aplicativo do banco. A janela
+de 2 minutos começa nesse momento.
+</div>
+
 <div
     class="status"
     id="status-pagamento"
 >
 Aguardando pagamento...
 </div>
-
-<p>
-Você recebeu uma janela temporária de até 2 minutos
-para abrir o aplicativo do banco e concluir o PIX.
-</p>
 
 <div class="codigo">
 Pedido: {order_id}
@@ -1441,6 +1606,64 @@ function copiarPix() {{
                 "Código PIX copiado!"
             );
         }});
+}}
+
+
+async function liberarInternetPagamento() {{
+    const botao = document.getElementById(
+        "btn-acesso-temporario"
+    );
+
+    const aviso = document.getElementById(
+        "aviso-temporario"
+    );
+
+    botao.disabled = true;
+    botao.textContent = "LIBERANDO...";
+    aviso.textContent =
+        "Solicitando os 2 minutos de internet ao MikroTik...";
+
+    try {{
+        const resposta = await fetch(
+            "{url_acesso_temporario}",
+            {{
+                method: "POST",
+                cache: "no-store"
+            }}
+        );
+
+        const dados = await resposta.json();
+
+        if (dados.ok && dados.pago) {{
+            aviso.textContent =
+                "Pagamento já aprovado. Liberando o plano comprado...";
+            botao.textContent = "PAGAMENTO APROVADO";
+            return;
+        }}
+
+        if (!resposta.ok || !dados.ok) {{
+            throw new Error(
+                dados.erro || "Falha ao solicitar internet temporária"
+            );
+        }}
+
+        botao.textContent = "2 MINUTOS SOLICITADOS";
+        aviso.textContent =
+            "Agora abra o aplicativo do banco e conclua o PIX. " +
+            "A internet temporária será encerrada automaticamente.";
+
+    }} catch (erro) {{
+        console.log(
+            "Erro ao solicitar acesso temporário:",
+            erro
+        );
+
+        botao.disabled = false;
+        botao.textContent =
+            "TENTAR LIBERAR 2 MINUTOS NOVAMENTE";
+        aviso.textContent =
+            "Não foi possível solicitar os 2 minutos. Tente novamente.";
+    }}
 }}
 
 
