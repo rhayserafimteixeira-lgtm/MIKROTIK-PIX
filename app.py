@@ -1118,36 +1118,44 @@ def criar_pix():
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Wi-Fi Pix - Planos</title>
 <style>
-* {{ box-sizing:border-box }}
-body {{ margin:0; min-height:100vh; font-family:Arial,sans-serif; background:linear-gradient(160deg,#061a31,#0a2b4b); color:#142033; padding:18px 14px 26px }}
-.app {{ max-width:430px; margin:auto }}
-.topo {{ text-align:center; color:#fff; padding:8px 0 16px }}
-.marca {{ font-size:38px; font-weight:900; letter-spacing:-1.5px }}
-.marca .wifi {{ color:#3b82f6 }} .marca .pix {{ color:#32c39a }}
-.topo p {{ margin:6px 0 0; color:#cbd8e7; font-size:15px }}
-.painel {{ background:#fff; border-radius:24px; padding:18px; box-shadow:0 16px 45px rgba(0,0,0,.28) }}
-.titulo {{ font-size:20px; font-weight:900; margin:0 0 4px }}
-.sub {{ color:#6b778c; font-size:13px; margin-bottom:14px }}
-.plano {{ display:flex; align-items:center; gap:12px; text-decoration:none; color:#172033; background:#fff; border:1px solid #e5ebf2; border-radius:17px; padding:13px 14px; margin:10px 0; box-shadow:0 5px 16px rgba(13,35,64,.08) }}
-.icone {{ width:46px; height:46px; flex:0 0 46px; border-radius:14px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:23px; font-weight:900 }}
-.p1 .icone {{ background:linear-gradient(135deg,#247cf2,#42a5f5) }} .p2 .icone {{ background:linear-gradient(135deg,#14a987,#45c79d) }} .p3 .icone {{ background:linear-gradient(135deg,#6b4fd3,#8b5cf6) }} .p4 .icone {{ background:linear-gradient(135deg,#e98725,#f3a72f) }}
-.dados {{ flex:1; text-align:left; min-width:0 }} .horas {{ font-size:17px; font-weight:900 }} .beneficio {{ color:#6d7889; font-size:11px; margin-top:3px }}
-.preco {{ text-align:right; font-size:22px; font-weight:900; white-space:nowrap }} .preco small {{ display:block; color:#8490a2; font-size:10px; font-weight:700; margin-top:2px }}
-.tag {{ display:inline-block; margin-top:5px; padding:3px 7px; border-radius:20px; background:#edf5ff; color:#247cf2; font-size:10px; font-weight:900 }}
-.p3 .tag,.p4 .tag {{ background:#f0eaff; color:#7048df }}
-.aviso {{ margin-top:14px; border-radius:14px; background:#f4f7fb; padding:12px 13px; text-align:left; color:#5e6a7c; font-size:11px; line-height:1.45 }} .aviso b {{ color:#172033 }}
-.rodape {{ text-align:center; color:#9fb0c3; font-size:10px; margin-top:12px }}
+* {{box-sizing:border-box}}
+:root {{--cyan:#00d9ff;--blue:#007bff;--lime:#74ff00;--yellow:#ffe600;--purple:#9b18ff;--bg:#02070b}}
+body {{margin:0;min-height:100vh;font-family:Arial,Helvetica,sans-serif;background:#000;color:#fff}}
+.app {{width:100%;max-width:430px;min-height:100vh;margin:auto;background:radial-gradient(circle at 50% -10%,#07253a 0,#02090e 34%,#000 70%);padding-bottom:22px}}
+.bar {{height:47px;border-bottom:1px solid #008cff;box-shadow:0 2px 12px #007cff66;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:15px}}
+.brand {{display:flex;align-items:center;gap:9px}} .wifiicon {{font-size:25px;color:#00eaff}} .signal {{color:#d8f7ff;font-size:20px}}
+.content {{padding:14px 14px 0}}
+h1 {{font-size:27px;font-weight:1000;font-style:italic;margin:0;text-align:center;letter-spacing:-1px}}
+.sub {{font-size:14px;text-align:center;margin:3px 0 17px;color:#eee}}
+.plan {{display:flex;align-items:center;min-height:94px;border-radius:14px;padding:12px 14px;margin:10px 0;text-decoration:none;color:#fff;position:relative;border:2px solid;box-shadow:0 0 14px currentColor,inset 0 0 22px #ffffff13}}
+.clock {{width:42px;height:42px;border:3px solid #fff;border-radius:50%;margin-right:12px;position:relative;flex:0 0 42px}}
+.clock:before {{content:"";position:absolute;width:2px;height:12px;background:#fff;left:18px;top:8px;transform-origin:bottom;transform:rotate(0deg)}}
+.clock:after {{content:"";position:absolute;width:10px;height:2px;background:#fff;left:18px;top:19px;transform:rotate(35deg);transform-origin:left}}
+.info {{flex:1;min-width:0}} .hours {{font-size:22px;font-weight:1000}} .speed {{font-size:13px;font-weight:1000;color:#eaff00;margin-top:2px}}
+.desc {{font-size:12px;line-height:1.2;margin-top:2px}} .price {{font-size:20px;font-weight:1000;white-space:nowrap;margin-left:7px}} .arrow {{font-size:34px;margin-left:8px}}
+.p1 {{background:linear-gradient(105deg,#002d83,#006cff);border-color:#00c8ff;color:#00bfff}}
+.p2 {{background:linear-gradient(105deg,#003d13,#00b71f);border-color:#24ff40;color:#3cff43}}
+.p3 {{background:linear-gradient(105deg,#6b4a00,#d69d00);border-color:#ffe900;color:#ffe600}}
+.p4 {{background:linear-gradient(105deg,#28005e,#7100bb);border-color:#c426ff;color:#bd27ff}}
+.plan * {{color:#fff}} .p1 .speed,.p2 .speed,.p3 .speed,.p4 .speed {{color:#eaff00}}
+.features {{display:flex;justify-content:space-around;text-align:center;margin:27px 0 30px}}
+.feature {{width:30%;font-size:11px;line-height:1.25}} .round {{width:45px;height:45px;border:2px solid #00c8ff;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:23px;box-shadow:0 0 12px #00bfff}}
+.feature:nth-child(2) .round {{border-color:#72ff00;box-shadow:0 0 12px #72ff00}} .feature:nth-child(3) .round {{border-color:#00c8ff}}
+.back {{display:inline-flex;align-items:center;gap:15px;border:1px solid #00a7ff;border-radius:6px;padding:11px 20px;color:#fff;text-decoration:none;font-weight:800;font-size:12px}}
+.signature {{float:right;color:#7dff00;font-size:25px;font-style:italic;margin:8px 8px 0 0}}
 </style>
 </head>
 <body><div class="app">
-<div class="topo"><div class="marca"><span class="wifi">Wi-Fi</span> <span class="pix">Pix</span></div><p>Escolha seu plano e conecte em segundos</p></div>
-<div class="painel"><div class="titulo">Escolha seu plano</div><div class="sub">Pagamento rápido e seguro via PIX</div>
-<a class="plano p1" href="{link_plano('1h')}"><div class="icone">1h</div><div class="dados"><div class="horas">1 hora</div><div class="beneficio">WhatsApp + apps de pagamento</div><span class="tag">1 MEGA</span></div><div class="preco">R$ 5<small>acesso individual</small></div></a>
-<a class="plano p2" href="{link_plano('2h')}"><div class="icone">2h</div><div class="dados"><div class="horas">2 horas</div><div class="beneficio">WhatsApp + apps de pagamento</div><span class="tag">2 MEGAS</span></div><div class="preco">R$ 10<small>acesso individual</small></div></a>
-<a class="plano p3" href="{link_plano('5h')}"><div class="icone">5h</div><div class="dados"><div class="horas">5 horas</div><div class="beneficio">WhatsApp + pagamentos + redes sociais</div><span class="tag">REDES SOCIAIS</span></div><div class="preco">R$ 15<small>mais completo</small></div></a>
-<a class="plano p4" href="{link_plano('10h')}"><div class="icone">10h</div><div class="dados"><div class="horas">10 horas</div><div class="beneficio">WhatsApp + pagamentos + redes sociais</div><span class="tag">REDES SOCIAIS</span></div><div class="preco">R$ 20<small>melhor duração</small></div></a>
-<div class="aviso"><b>Importante:</b> planos de R$ 5 e R$ 10 são indicados para WhatsApp e aplicativos de pagamento. Planos de R$ 15 e R$ 20 também liberam acesso às redes sociais.</div>
-</div><div class="rodape">Wi-Fi Pix • Internet fácil onde você estiver</div></div></body></html>
+<div class="bar"><div class="brand"><span class="wifiicon">◉</span><span>Wi-Fi Pix</span></div><span class="signal">◔</span></div>
+<div class="content">
+<h1>ESCOLHA SEU PLANO</h1><div class="sub">Internet de qualidade para você aproveitar<br>o evento sem limites.</div>
+<a class="plan p1" href="{link_plano('1h')}"><div class="clock"></div><div class="info"><div class="hours">1 HORA</div><div class="speed">1 a 2 Megas</div><div class="desc">Apenas WhatsApp e apps<br>de pagamento.</div></div><div class="price">R$ 5,00</div><div class="arrow">›</div></a>
+<a class="plan p2" href="{link_plano('2h')}"><div class="clock"></div><div class="info"><div class="hours">2 HORAS</div><div class="speed">1 a 2 Megas</div><div class="desc">Apenas WhatsApp e apps<br>de pagamento.</div></div><div class="price">R$ 10,00</div><div class="arrow">›</div></a>
+<a class="plan p3" href="{link_plano('5h')}"><div class="clock"></div><div class="info"><div class="hours">5 HORAS</div><div class="desc"><b>Acesso completo</b><br>Redes sociais liberadas<br>(WhatsApp, Instagram, TikTok, etc).</div></div><div class="price">R$ 15,00</div><div class="arrow">›</div></a>
+<a class="plan p4" href="{link_plano('10h')}"><div class="clock"></div><div class="info"><div class="hours">10 HORAS</div><div class="desc"><b>Acesso completo</b><br>Redes sociais liberadas<br>(WhatsApp, Instagram, TikTok, etc).</div></div><div class="price">R$ 20,00</div><div class="arrow">›</div></a>
+<div class="features"><div class="feature"><div class="round">∞</div>Sem cadastro<br>complicado</div><div class="feature"><div class="round">✓</div>Pagamento<br>seguro</div><div class="feature"><div class="round">➤</div>Conecte-se<br>e aproveite</div></div>
+<a class="back" href="javascript:history.back()">‹ &nbsp;&nbsp; VOLTAR</a><div class="signature">Wi-Fi Pix</div>
+</div></div></body></html>
 """
             return pagina_planos, 200
 
@@ -1358,28 +1366,39 @@ body {{ margin:0; min-height:100vh; font-family:Arial,sans-serif; background:lin
 <!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>Wi-Fi Pix - Pagamento</title>
 <style>
-* {{ box-sizing:border-box }} body {{ margin:0; min-height:100vh; font-family:Arial,sans-serif; background:linear-gradient(160deg,#061a31,#0a2b4b); color:#142033; padding:16px 14px 25px }}
-.app {{ max-width:430px; margin:auto }} .topo {{ text-align:center; color:#fff; padding:5px 0 13px }} .marca {{ font-size:34px; font-weight:900; letter-spacing:-1px }} .wifi {{ color:#3b82f6 }} .pixc {{ color:#32c39a }}
-.painel {{ background:#fff; border-radius:24px; padding:17px; box-shadow:0 16px 45px rgba(0,0,0,.28) }}
-.resumo {{ display:flex; align-items:center; justify-content:space-between; gap:10px; background:#f4f7fb; border-radius:15px; padding:11px 13px; margin-bottom:12px }} .resumo .nome {{ text-align:left; font-size:12px; color:#6b778c }} .resumo .nome b {{ display:block; color:#172033; font-size:17px; margin-top:2px }} .valor {{ color:#20a77e; font-size:26px; font-weight:900; white-space:nowrap }}
-.instrucao {{ font-size:12px; color:#697588; margin:4px 0 8px }} img {{ display:block; width:190px; max-width:65vw; margin:8px auto 11px; border-radius:10px }}
-.pixbox {{ background:#f7f9fc; border:1px solid #e0e6ee; border-radius:13px; padding:10px }} .pixlabel {{ text-align:left; font-size:11px; font-weight:900; color:#667386; margin-bottom:6px }} textarea {{ width:100%; height:48px; border:0; background:transparent; resize:none; font-size:10px; color:#5f6875; outline:none }}
-button {{ width:100%; border:0; border-radius:14px; padding:14px 10px; margin-top:10px; color:#fff; font-size:14px; font-weight:900; cursor:pointer }} .copiar {{ background:linear-gradient(90deg,#13a984,#43c69d) }} .temporario {{ background:linear-gradient(90deg,#247cf2,#42a5f5) }} .temporario:disabled {{ opacity:.65 }}
-.dica {{ display:flex; gap:8px; align-items:flex-start; margin-top:10px; background:#eef6ff; color:#526173; border-radius:12px; padding:10px; text-align:left; font-size:10px; line-height:1.4 }} .dica strong {{ color:#247cf2 }}
-.status {{ margin-top:10px; border-radius:12px; background:#f4f7fb; padding:10px; font-size:12px; font-weight:900 }} .pedido {{ margin-top:9px; text-align:center; color:#9aa4b2; font-size:9px }}
-</style></head><body><div class="app"><div class="topo"><div class="marca"><span class="wifi">Wi-Fi</span> <span class="pixc">Pix</span></div></div><div class="painel">
-<div class="resumo"><div class="nome">Seu plano<b>{nome_plano}</b></div><div class="valor">R$ {valor.replace('.', ',')}</div></div>
-<p class="instrucao">Escaneie o QR Code ou copie o código PIX abaixo.</p>{imagem_qr}
-<div class="pixbox"><div class="pixlabel">PIX COPIA E COLA</div><textarea id="pix" readonly>{qr_code}</textarea></div>
-<button class="copiar" onclick="copiarPix()">COPIAR CÓDIGO PIX</button>
-<button id="btn-acesso-temporario" class="temporario" onclick="liberarInternetPagamento()">LIBERAR 2 MINUTOS PARA PAGAR</button>
-<div class="dica" id="aviso-temporario"><strong>2 MIN</strong><span>Primeiro copie o PIX. Quando estiver pronto para abrir o banco, toque no botão azul. O tempo começa somente nesse momento.</span></div>
-<div class="status" id="status-pagamento">Aguardando pagamento...</div><div class="pedido">Pedido {order_id} • {horas} hora(s)</div>
-</div></div><script>
-function copiarPix() {{ const codigo=document.getElementById('pix').value; navigator.clipboard.writeText(codigo).then(function(){{ alert('Código PIX copiado!'); }}); }}
-async function liberarInternetPagamento() {{ const botao=document.getElementById('btn-acesso-temporario'); const aviso=document.getElementById('aviso-temporario'); botao.disabled=true; botao.textContent='LIBERANDO...'; aviso.innerHTML='<strong>2 MIN</strong><span>Solicitando internet temporária ao MikroTik...</span>'; try {{ const resposta=await fetch('{url_acesso_temporario}',{{method:'POST',cache:'no-store'}}); const dados=await resposta.json(); if(dados.ok&&dados.pago){{ aviso.innerHTML='<strong>OK</strong><span>Pagamento já aprovado. Liberando o plano comprado...</span>'; botao.textContent='PAGAMENTO APROVADO'; return; }} if(!resposta.ok||!dados.ok) throw new Error(dados.erro||'Falha'); botao.textContent='2 MINUTOS LIBERADOS'; aviso.innerHTML='<strong>AGORA</strong><span>Abra o aplicativo do banco e conclua o PIX. O acesso temporário será encerrado automaticamente.</span>'; }} catch(erro){{ botao.disabled=false; botao.textContent='TENTAR LIBERAR 2 MINUTOS NOVAMENTE'; aviso.innerHTML='<strong>ERRO</strong><span>Não foi possível solicitar os 2 minutos. Tente novamente.</span>'; }} }}
-async function verificarPagamento() {{ try {{ const resposta=await fetch('/status-pix/{order_id}',{{cache:'no-store'}}); const dados=await resposta.json(); const tela=document.getElementById('status-pagamento'); if(dados.ok&&dados.pago&&dados.liberada){{tela.textContent='Pagamento aprovado! Internet liberada.';clearInterval(timerPagamento);}} else if(dados.ok&&dados.pago) tela.textContent='Pagamento aprovado! Liberando internet...'; else if(dados.ok) tela.textContent='Aguardando pagamento...'; }} catch(erro){{ console.log(erro); }} }}
-let timerPagamento=setInterval(verificarPagamento,5000); verificarPagamento();
+* {{box-sizing:border-box}} :root{{--cyan:#00d9ff;--lime:#63ff00;--yellow:#ffe600}}
+body{{margin:0;min-height:100vh;font-family:Arial,Helvetica,sans-serif;background:#000;color:#fff}}
+.app{{width:100%;max-width:430px;min-height:100vh;margin:auto;background:radial-gradient(circle at 50% -10%,#07253a 0,#02090e 34%,#000 72%);padding-bottom:22px}}
+.bar{{height:47px;border-bottom:1px solid #008cff;box-shadow:0 2px 12px #007cff66;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:15px}}
+.brand{{display:flex;align-items:center;gap:9px}} .wifiicon{{font-size:25px;color:#00eaff}} .lock{{font-size:17px}}
+.content{{padding:15px 15px 0;text-align:center}} h1{{font-size:23px;font-weight:1000;margin:0 0 4px}} .lead{{font-size:13px;margin-bottom:13px}}
+.summary{{border:2px solid #ffe600;border-radius:13px;background:linear-gradient(90deg,#5d4d00,#9c7800);box-shadow:0 0 16px #ffe600;padding:11px 13px;display:flex;align-items:center;text-align:left;margin-bottom:17px}}
+.clock{{font-size:31px;margin-right:12px}} .sumname{{flex:1;font-size:12px}} .sumname b{{display:block;font-size:18px;margin-top:2px}} .value{{font-size:20px;font-weight:1000}}
+.qrframe{{width:205px;min-height:205px;margin:0 auto 12px;border:3px solid #00e5ff;border-radius:15px;padding:9px;background:#fff;box-shadow:0 0 15px #00c8ff}} .qrframe img{{display:block;width:100%;height:auto;margin:0}}
+.pixline{{height:38px;border:1px solid #006fa7;background:#06131f;border-radius:9px;display:flex;align-items:center;padding:0 10px;margin-bottom:9px}} textarea{{flex:1;height:25px;border:0;resize:none;background:transparent;color:#fff;font-size:10px;outline:0;white-space:nowrap;overflow:hidden}} .copymini{{font-size:18px}}
+button{{width:100%;border-radius:14px;padding:14px 10px;border:2px solid;font-size:17px;font-weight:1000;cursor:pointer;color:#fff;margin:7px 0}}
+.copy{{background:linear-gradient(90deg,#007bd8,#006cff);border-color:#00eaff;box-shadow:0 0 15px #00d9ff}}
+.temp{{background:linear-gradient(90deg,#087800,#14ad00);border-color:#72ff00;box-shadow:0 0 15px #56ff00}} .temp:disabled{{opacity:.7}}
+.auto{{font-size:12px;margin:5px 0 14px}} .tip{{display:flex;text-align:left;gap:9px;border:1px solid #007ab7;border-radius:9px;padding:10px;color:#dbefff;font-size:11px;line-height:1.35}} .tip strong{{font-size:20px;color:#00d9ff}}
+.status{{margin-top:10px;color:#ffe600;font-size:12px;font-weight:800}} .backrow{{margin-top:18px;text-align:left}} .back{{display:inline-flex;border:1px solid #008bd0;border-radius:6px;padding:10px 17px;color:#fff;text-decoration:none;font-size:12px;font-weight:800}} .signature{{float:right;color:#76ff00;font-size:24px;font-style:italic;margin-top:7px}}
+</style></head><body><div class="app">
+<div class="bar"><div class="brand"><span class="wifiicon">◉</span><span>Wi-Fi Pix</span></div><span class="lock">♙</span></div>
+<div class="content"><h1>PAGAMENTO VIA PIX</h1><div class="lead">Escaneie o QR Code ou copie a chave PIX.</div>
+<div class="summary"><div class="clock">◷</div><div class="sumname">Plano selecionado:<b>{nome_plano.upper()}</b></div><div class="value">R$ {valor.replace('.', ',')}</div></div>
+<div class="qrframe">{imagem_qr}</div>
+<div class="pixline"><textarea id="pix" readonly>{qr_code}</textarea><span class="copymini">▣</span></div>
+<button class="copy" onclick="copiarPix()">▣ &nbsp; COPIAR PIX</button>
+<div class="auto">Após o pagamento, sua internet será<br>liberada automaticamente.</div>
+<button id="btn-acesso-temporario" class="temp" onclick="liberarInternetPagamento()">◉ &nbsp; LIBERAR 2 MINUTOS GRÁTIS<br><small>PARA PAGAR</small></button>
+<div class="tip" id="aviso-temporario"><strong>ⓘ</strong><span>Sem acesso ao 4G/5G?<br>Use os 2 minutos grátis para abrir o app do banco e realizar o pagamento.</span></div>
+<div class="status" id="status-pagamento">Aguardando pagamento...</div>
+<div class="backrow"><a class="back" href="javascript:history.back()">‹ &nbsp;&nbsp; VOLTAR</a><div class="signature">Wi-Fi Pix</div></div>
+</div></div>
+<script>
+function copiarPix(){{const codigo=document.getElementById('pix').value;navigator.clipboard.writeText(codigo).then(function(){{alert('Código PIX copiado!');}});}}
+async function liberarInternetPagamento(){{const botao=document.getElementById('btn-acesso-temporario');const aviso=document.getElementById('aviso-temporario');botao.disabled=true;botao.textContent='LIBERANDO...';try{{const resposta=await fetch('{url_acesso_temporario}',{{method:'POST',cache:'no-store'}});const dados=await resposta.json();if(dados.ok&&dados.pago){{aviso.innerHTML='<strong>✓</strong><span>Pagamento já aprovado. Liberando o plano comprado...</span>';botao.textContent='PAGAMENTO APROVADO';return;}}if(!resposta.ok||!dados.ok)throw new Error(dados.erro||'Falha');botao.textContent='2 MINUTOS LIBERADOS';aviso.innerHTML='<strong>✓</strong><span>Abra o aplicativo do banco e conclua o PIX. O acesso temporário será encerrado automaticamente.</span>';}}catch(erro){{botao.disabled=false;botao.textContent='TENTAR LIBERAR 2 MINUTOS NOVAMENTE';aviso.innerHTML='<strong>!</strong><span>Não foi possível solicitar os 2 minutos. Tente novamente.</span>';}}}}
+async function verificarPagamento(){{try{{const resposta=await fetch('/status-pix/{order_id}',{{cache:'no-store'}});const dados=await resposta.json();const tela=document.getElementById('status-pagamento');if(dados.ok&&dados.pago&&dados.liberada){{tela.textContent='PAGAMENTO APROVADO! INTERNET LIBERADA.';tela.style.color='#63ff00';clearInterval(timerPagamento);}}else if(dados.ok&&dados.pago)tela.textContent='Pagamento aprovado! Liberando internet...';else if(dados.ok)tela.textContent='Aguardando pagamento...';}}catch(erro){{console.log(erro);}}}}
+let timerPagamento=setInterval(verificarPagamento,5000);verificarPagamento();
 </script></body></html>
 """
         return pagina, 200
