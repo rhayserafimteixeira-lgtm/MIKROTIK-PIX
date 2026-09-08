@@ -1115,105 +1115,34 @@ def criar_pix():
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
-<title>Internet via PIX</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wi-Fi Pix - Planos</title>
 <style>
-body {{
-    font-family: Arial, sans-serif;
-    background: #f2f4f7;
-    margin: 0;
-    padding: 18px;
-    text-align: center;
-}}
-
-.caixa {{
-    max-width: 420px;
-    margin: 20px auto;
-    background: white;
-    padding: 25px;
-    border-radius: 18px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-}}
-
-h1 {{
-    margin-bottom: 8px;
-}}
-
-.subtitulo {{
-    color: #555;
-    margin-bottom: 22px;
-}}
-
-.plano {{
-    display: block;
-    text-decoration: none;
-    color: #111;
-    border: 2px solid #00a650;
-    border-radius: 14px;
-    padding: 18px;
-    margin: 13px 0;
-    font-size: 20px;
-    font-weight: bold;
-}}
-
-.plano span {{
-    display: block;
-    color: #00a650;
-    font-size: 25px;
-    margin-top: 5px;
-}}
-
-.plano:hover {{
-    background: #f0fff7;
-}}
+* {{ box-sizing: border-box; }}
+body {{ font-family: Arial,sans-serif; background:#071b33; margin:0; padding:22px 15px; text-align:center; color:#172033; }}
+.caixa {{ max-width:430px; margin:0 auto; background:#fff; padding:25px 20px; border-radius:22px; box-shadow:0 12px 35px rgba(0,0,0,.30); }}
+.logo {{ font-size:34px; font-weight:900; color:#087cf0; margin:2px 0 4px; }}
+.logo span {{ color:#00b894; }}
+.subtitulo {{ color:#596579; margin:4px 0 20px; font-size:15px; }}
+.plano {{ display:block; text-decoration:none; color:#fff; border-radius:15px; padding:16px; margin:12px 0; font-size:18px; font-weight:800; box-shadow:0 5px 14px rgba(0,0,0,.16); }}
+.plano strong {{ display:block; font-size:26px; margin-top:4px; }}
+.p1 {{ background:linear-gradient(90deg,#087cf0,#0aa4e8); }}
+.p2 {{ background:linear-gradient(90deg,#00a98f,#00c38f); }}
+.p3 {{ background:linear-gradient(90deg,#6b4fd3,#8b5cf6); }}
+.p4 {{ background:linear-gradient(90deg,#e67e22,#f39c12); }}
+.info {{ margin-top:18px; padding:13px; background:#f2f7fb; border-radius:12px; color:#596579; font-size:12px; line-height:1.5; text-align:left; }}
+.info b {{ color:#172033; }}
 </style>
 </head>
-
 <body>
 <div class="caixa">
-
-<h1>🌐 Internet Wi-Fi</h1>
-
-<p class="subtitulo">
-Escolha seu plano de acesso
-</p>
-
-<a
-    class="plano"
-    href="{link_plano('1h')}"
->
-1 hora
-<span>R$ 5,00</span>
-</a>
-
-<a
-    class="plano"
-    href="{link_plano('2h')}"
->
-2 horas
-<span>R$ 10,00</span>
-</a>
-
-<a
-    class="plano"
-    href="{link_plano('5h')}"
->
-5 horas
-<span>R$ 15,00</span>
-</a>
-
-<a
-    class="plano"
-    href="{link_plano('10h')}"
->
-10 horas
-<span>R$ 20,00</span>
-</a>
-
+<div class="logo">Wi-Fi <span>Pix</span></div>
+<p class="subtitulo">Escolha o melhor plano para voce</p>
+<a class="plano p1" href="{link_plano('1h')}">1 HORA<strong>R$ 5,00</strong></a>
+<a class="plano p2" href="{link_plano('2h')}">2 HORAS<strong>R$ 10,00</strong></a>
+<a class="plano p3" href="{link_plano('5h')}">5 HORAS<strong>R$ 15,00</strong></a>
+<a class="plano p4" href="{link_plano('10h')}">10 HORAS<strong>R$ 20,00</strong></a>
+<div class="info"><b>Importante:</b><br>Planos de R$ 5 e R$ 10: acesso ao WhatsApp e aplicativos de pagamento.<br>Planos de R$ 15 e R$ 20: liberam tambem acesso as redes sociais.</div>
 </div>
 </body>
 </html>
@@ -1428,305 +1357,94 @@ Escolha seu plano de acesso
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
-<title>Internet via PIX</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wi-Fi Pix - Pagamento</title>
 <style>
-body {{
-    font-family: Arial, sans-serif;
-    background: #f2f4f7;
-    margin: 0;
-    padding: 18px;
-    text-align: center;
-}}
-
-.caixa {{
-    max-width: 420px;
-    margin: 20px auto;
-    background: white;
-    padding: 25px;
-    border-radius: 18px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-}}
-
-h1 {{
-    margin-bottom: 8px;
-}}
-
-.plano {{
-    font-size: 20px;
-    font-weight: bold;
-}}
-
-.valor {{
-    font-size: 32px;
-    font-weight: bold;
-    margin: 15px 0;
-    color: #00a650;
-}}
-
-img {{
-    width: 260px;
-    max-width: 90%;
-    margin: 15px 0;
-}}
-
-textarea {{
-    box-sizing: border-box;
-    width: 100%;
-    height: 105px;
-    padding: 10px;
-    border-radius: 8px;
-    resize: none;
-}}
-
-button {{
-    width: 100%;
-    padding: 15px;
-    margin-top: 12px;
-    border: none;
-    border-radius: 10px;
-    font-size: 17px;
-    cursor: pointer;
-    background: #00a650;
-    color: white;
-}}
-
-.status {{
-    margin-top: 20px;
-    font-weight: bold;
-    font-size: 18px;
-}}
-
-.btn-temporario {{
-    background: #1468d4;
-}}
-
-.btn-temporario:disabled {{
-    opacity: 0.65;
-    cursor: default;
-}}
-
-.aviso-temporario {{
-    margin-top: 12px;
-    font-size: 14px;
-    line-height: 1.45;
-    color: #555;
-}}
-
-.codigo {{
-    font-size: 12px;
-    margin-top: 15px;
-    color: #666;
-}}
+* {{ box-sizing:border-box; }}
+body {{ font-family:Arial,sans-serif; background:#071b33; margin:0; padding:20px 14px; text-align:center; color:#172033; }}
+.caixa {{ max-width:430px; margin:0 auto; background:#fff; padding:23px 19px; border-radius:22px; box-shadow:0 12px 35px rgba(0,0,0,.30); }}
+.logo {{ font-size:32px; font-weight:900; color:#087cf0; }}
+.logo span {{ color:#00b894; }}
+.plano {{ margin-top:10px; font-size:17px; font-weight:800; color:#596579; }}
+.valor {{ font-size:32px; font-weight:900; margin:6px 0 12px; color:#00a98f; }}
+.instrucao {{ color:#596579; font-size:14px; }}
+img {{ width:240px; max-width:88%; margin:10px 0; border-radius:12px; }}
+.rotulo {{ font-weight:800; margin:10px 0 7px; }}
+textarea {{ width:100%; height:82px; padding:10px; border:1px solid #d5dde7; border-radius:10px; resize:none; font-size:12px; background:#f7f9fb; }}
+button {{ width:100%; padding:15px 10px; margin-top:11px; border:0; border-radius:12px; font-size:16px; font-weight:900; cursor:pointer; color:#fff; }}
+.btn-copiar {{ background:linear-gradient(90deg,#00a98f,#00c38f); }}
+.btn-temporario {{ background:linear-gradient(90deg,#087cf0,#0aa4e8); }}
+.btn-temporario:disabled {{ opacity:.65; cursor:default; }}
+.aviso-temporario {{ margin-top:11px; padding:11px; background:#eef6ff; border-radius:10px; font-size:12px; line-height:1.45; color:#526173; }}
+.status {{ margin-top:16px; padding:11px; border-radius:10px; background:#f2f7fb; font-weight:800; font-size:15px; color:#172033; }}
+.codigo {{ font-size:11px; margin-top:13px; color:#8993a1; }}
 </style>
 </head>
-
 <body>
-
 <div class="caixa">
-
-<h1>🌐 Internet via PIX</h1>
-
-<div class="plano">
-Plano de {nome_plano}
-</div>
-
-<div class="valor">
-R$ {valor.replace(".", ",")}
-</div>
-
-<p>
-Escaneie o QR Code para pagar:
-</p>
-
+<div class="logo">Wi-Fi <span>Pix</span></div>
+<div class="plano">Plano de {nome_plano}</div>
+<div class="valor">R$ {valor.replace(".", ",")}</div>
+<p class="instrucao">Escaneie o QR Code ou use o PIX Copia e Cola.</p>
 {imagem_qr}
-
-<p>
-<strong>PIX Copia e Cola</strong>
-</p>
-
-<textarea
-    id="pix"
-    readonly
->{qr_code}</textarea>
-
-<button onclick="copiarPix()">
-Copiar código PIX
-</button>
-
-<button
-    id="btn-acesso-temporario"
-    class="btn-temporario"
-    onclick="liberarInternetPagamento()"
->
-LIBERAR INTERNET POR 2 MINUTOS PARA PAGAR
-</button>
-
-<div
-    class="aviso-temporario"
-    id="aviso-temporario"
->
-Primeiro copie o código PIX. Depois toque no botão acima somente
-quando estiver pronto para abrir o aplicativo do banco. A janela
-de 2 minutos começa nesse momento.
+<div class="rotulo">PIX Copia e Cola</div>
+<textarea id="pix" readonly>{qr_code}</textarea>
+<button class="btn-copiar" onclick="copiarPix()">COPIAR CODIGO PIX</button>
+<button id="btn-acesso-temporario" class="btn-temporario" onclick="liberarInternetPagamento()">LIBERAR INTERNET POR 2 MINUTOS PARA PAGAR</button>
+<div class="aviso-temporario" id="aviso-temporario">Primeiro copie o codigo PIX. Quando estiver pronto para abrir o aplicativo do banco, toque no botao azul. Os 2 minutos comecam nesse momento.</div>
+<div class="status" id="status-pagamento">Aguardando pagamento...</div>
+<div class="codigo">Pedido: {order_id}<br>Plano: {nome_plano}<br>Tempo: {horas} hora(s)</div>
 </div>
-
-<div
-    class="status"
-    id="status-pagamento"
->
-Aguardando pagamento...
-</div>
-
-<div class="codigo">
-Pedido: {order_id}
-<br>
-Plano: {nome_plano}
-<br>
-Tempo: {horas} hora(s)
-</div>
-
-</div>
-
 <script>
 function copiarPix() {{
-    const codigo =
-        document.getElementById(
-            "pix"
-        ).value;
-
-    navigator.clipboard
-        .writeText(codigo)
-        .then(function() {{
-            alert(
-                "Código PIX copiado!"
-            );
-        }});
+    const codigo = document.getElementById("pix").value;
+    navigator.clipboard.writeText(codigo).then(function() {{ alert("Codigo PIX copiado!"); }});
 }}
 
-
 async function liberarInternetPagamento() {{
-    const botao = document.getElementById(
-        "btn-acesso-temporario"
-    );
-
-    const aviso = document.getElementById(
-        "aviso-temporario"
-    );
-
+    const botao = document.getElementById("btn-acesso-temporario");
+    const aviso = document.getElementById("aviso-temporario");
     botao.disabled = true;
     botao.textContent = "LIBERANDO...";
-    aviso.textContent =
-        "Solicitando os 2 minutos de internet ao MikroTik...";
-
+    aviso.textContent = "Solicitando os 2 minutos de internet ao MikroTik...";
     try {{
-        const resposta = await fetch(
-            "{url_acesso_temporario}",
-            {{
-                method: "POST",
-                cache: "no-store"
-            }}
-        );
-
+        const resposta = await fetch("{url_acesso_temporario}", {{ method:"POST", cache:"no-store" }});
         const dados = await resposta.json();
-
         if (dados.ok && dados.pago) {{
-            aviso.textContent =
-                "Pagamento já aprovado. Liberando o plano comprado...";
+            aviso.textContent = "Pagamento ja aprovado. Liberando o plano comprado...";
             botao.textContent = "PAGAMENTO APROVADO";
             return;
         }}
-
-        if (!resposta.ok || !dados.ok) {{
-            throw new Error(
-                dados.erro || "Falha ao solicitar internet temporária"
-            );
-        }}
-
+        if (!resposta.ok || !dados.ok) {{ throw new Error(dados.erro || "Falha ao solicitar internet temporaria"); }}
         botao.textContent = "2 MINUTOS SOLICITADOS";
-        aviso.textContent =
-            "Agora abra o aplicativo do banco e conclua o PIX. " +
-            "A internet temporária será encerrada automaticamente.";
-
+        aviso.textContent = "Agora abra o aplicativo do banco e conclua o PIX. A internet temporaria sera encerrada automaticamente.";
     }} catch (erro) {{
-        console.log(
-            "Erro ao solicitar acesso temporário:",
-            erro
-        );
-
+        console.log("Erro ao solicitar acesso temporario:", erro);
         botao.disabled = false;
-        botao.textContent =
-            "TENTAR LIBERAR 2 MINUTOS NOVAMENTE";
-        aviso.textContent =
-            "Não foi possível solicitar os 2 minutos. Tente novamente.";
+        botao.textContent = "TENTAR LIBERAR 2 MINUTOS NOVAMENTE";
+        aviso.textContent = "Nao foi possivel solicitar os 2 minutos. Tente novamente.";
     }}
 }}
-
 
 async function verificarPagamento() {{
     try {{
-        const resposta =
-            await fetch(
-                "/status-pix/{order_id}",
-                {{
-                    cache: "no-store"
-                }}
-            );
-
-        const dados =
-            await resposta.json();
-
-        const statusTela =
-            document.getElementById(
-                "status-pagamento"
-            );
-
-        if (
-            dados.ok
-            && dados.pago
-            && dados.liberada
-        ) {{
-            statusTela.textContent =
-                "Pagamento aprovado! Internet liberada.";
-
-            clearInterval(
-                timerPagamento
-            );
-
-        }} else if (
-            dados.ok
-            && dados.pago
-        ) {{
-            statusTela.textContent =
-                "Pagamento aprovado! Liberando internet...";
-
+        const resposta = await fetch("/status-pix/{order_id}", {{ cache:"no-store" }});
+        const dados = await resposta.json();
+        const statusTela = document.getElementById("status-pagamento");
+        if (dados.ok && dados.pago && dados.liberada) {{
+            statusTela.textContent = "Pagamento aprovado! Internet liberada.";
+            clearInterval(timerPagamento);
+        }} else if (dados.ok && dados.pago) {{
+            statusTela.textContent = "Pagamento aprovado! Liberando internet...";
         }} else if (dados.ok) {{
-            statusTela.textContent =
-                "Aguardando pagamento...";
+            statusTela.textContent = "Aguardando pagamento...";
         }}
-
-    }} catch (erro) {{
-        console.log(
-            "Erro na consulta do pagamento:",
-            erro
-        );
-    }}
+    }} catch (erro) {{ console.log("Erro na consulta do pagamento:", erro); }}
 }}
 
-
-let timerPagamento =
-    setInterval(
-        verificarPagamento,
-        5000
-    );
-
+let timerPagamento = setInterval(verificarPagamento, 5000);
 verificarPagamento();
 </script>
-
 </body>
 </html>
 """
