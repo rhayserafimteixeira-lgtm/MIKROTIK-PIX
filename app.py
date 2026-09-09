@@ -30,6 +30,18 @@ PLANOS = {
     "10h": {"nome": "10 horas", "valor": "20.00", "horas": 10},
 }
 
+# Codigos exclusivos da equipe: cada codigo fica preso ao primeiro MAC.
+EQUIPE_CODIGOS = {
+    "WPX-HFWUVCSN": "EQUIPE01",
+    "WPX-LDRCAAGX": "EQUIPE02",
+    "WPX-SF65JL8W": "EQUIPE03",
+    "WPX-AG37V52K": "EQUIPE04",
+    "WPX-VUPNQYTP": "EQUIPE05",
+    "WPX-6J69SE45": "EQUIPE06",
+    "WPX-FTRQBUD4": "EQUIPE07",
+    "WPX-9FQ3HY4J": "EQUIPE08",
+}
+
 
 # =========================================================
 # BANCO LOCAL DE LIBERACOES
@@ -85,6 +97,17 @@ def db_inicializar():
         conexao.execute("""
             CREATE INDEX IF NOT EXISTS idx_acessos_temporarios_status
             ON acessos_temporarios(status)
+        """)
+
+        conexao.execute("""
+            CREATE TABLE IF NOT EXISTS acessos_equipe (
+                codigo TEXT PRIMARY KEY,
+                vaga TEXT NOT NULL,
+                mac TEXT NOT NULL UNIQUE,
+                ip TEXT,
+                criado_em TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pendente'
+            )
         """)
 
 
@@ -456,6 +479,94 @@ def confirmar_liberacao_db(mac, order_id=""):
         )
 
     return linha
+
+
+
+# =========================================================
+# ACESSO PERMANENTE DA EQUIPE
+# =========================================================
+
+@app.route("/acesso-equipe", methods=["GET", "POST"])
+def acesso_equipe():
+    mac = normalizar_mac(request.values.get("mac", ""))
+    ip = request.values.get("ip", "").strip()
+    mensagem = ""
+    classe = ""
+
+    if request.method == "POST":
+        codigo = request.form.get("codigo", "").strip().upper()
+        vaga = EQUIPE_CODIGOS.get(codigo)
+
+        if not vaga or not mac:
+            mensagem, classe = "Código ou aparelho inválido.", "erro"
+        else:
+            agora = datetime.now(timezone.utc).isoformat()
+            with db_conectar() as conexao:
+                por_codigo = conexao.execute(
+                    "SELECT * FROM acessos_equipe WHERE codigo=?", (codigo,)
+                ).fetchone()
+                por_mac = conexao.execute(
+                    "SELECT * FROM acessos_equipe WHERE mac=?", (mac,)
+                ).fetchone()
+
+                if por_codigo and por_codigo["mac"] != mac:
+                    mensagem, classe = "Este código já pertence a outro aparelho.", "erro"
+                elif por_codigo or por_mac:
+                    mensagem, classe = "Este aparelho já está autorizado.", "ok"
+                else:
+                    conexao.execute(
+                        """INSERT INTO acessos_equipe
+                        (codigo,vaga,mac,ip,criado_em,status)
+                        VALUES (?,?,?,?,?,'pendente')""",
+                        (codigo, vaga, mac, ip, agora),
+                    )
+                    mensagem, classe = "Código aceito. Liberando este aparelho...", "ok"
+
+    return f"""<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wi-Fi Pix - Equipe</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:#000;color:#fff;font-family:Arial}}
+.app{{max-width:430px;min-height:100vh;margin:auto;padding:55px 20px;text-align:center;background:radial-gradient(circle at 50% 0,#07253a,#02090e 40%,#000 75%)}}
+.lock{{font-size:48px}}h1{{font-size:27px}}p{{color:#cfefff;font-size:13px}}
+input{{width:100%;padding:16px;border:2px solid #00d9ff;border-radius:12px;background:#07131c;color:#fff;text-align:center;font-size:19px;font-weight:bold}}
+button{{width:100%;margin-top:14px;padding:16px;border:2px solid #74ff00;border-radius:14px;background:#118d00;color:#fff;font-size:17px;font-weight:bold}}
+.msg{{margin-top:20px;font-weight:bold}}.ok{{color:#74ff00}}.erro{{color:#ff5252}}
+</style></head><body><div class="app"><div class="lock">🔒</div>
+<h1>ACESSO DA EQUIPE</h1><p>Digite o código exclusivo deste aparelho.</p>
+<form method="post"><input type="hidden" name="mac" value="{mac}">
+<input type="hidden" name="ip" value="{ip}">
+<input name="codigo" autocomplete="off" placeholder="CÓDIGO DA EQUIPE" required>
+<button type="submit">LIBERAR ESTE APARELHO</button></form>
+<div class="msg {classe}">{mensagem}</div></div></body></html>""", 200
+
+
+@app.route("/equipe-pendente", methods=["GET"])
+def equipe_pendente():
+    with db_conectar() as conexao:
+        linha = conexao.execute(
+            "SELECT * FROM acessos_equipe WHERE status='pendente' ORDER BY criado_em ASC LIMIT 1"
+        ).fetchone()
+    if not linha:
+        return jsonify({"ok": True, "pendente": False}), 200
+    return jsonify({"ok": True, "pendente": True, "vaga": linha["vaga"],
+                    "mac": linha["mac"], "ip": linha["ip"] or ""}), 200
+
+
+@app.route("/confirmar-equipe", methods=["GET", "POST"])
+def confirmar_equipe():
+    mac = normalizar_mac(request.values.get("mac", ""))
+    if not mac:
+        return jsonify({"ok": False, "erro": "MAC inválido"}), 400
+    with db_conectar() as conexao:
+        linha = conexao.execute(
+            "SELECT * FROM acessos_equipe WHERE mac=? AND status='pendente'", (mac,)
+        ).fetchone()
+        if not linha:
+            return jsonify({"ok": False, "erro": "Acesso pendente não encontrado"}), 404
+        conexao.execute(
+            "UPDATE acessos_equipe SET status='confirmada' WHERE mac=?", (mac,)
+        )
+    return jsonify({"ok": True, "confirmado": True, "mac": mac}), 200
 
 
 # =========================================================
@@ -1110,6 +1221,8 @@ def criar_pix():
                     f"/criar-pix?{query}"
                 )
 
+            link_equipe = "/acesso-equipe?" + urlencode({"mac": mac, "ip": ip})
+
             pagina_planos = f"""
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -1142,7 +1255,7 @@ h1 {{font-size:27px;font-weight:1000;font-style:italic;margin:0;text-align:cente
 .feature {{width:30%;font-size:11px;line-height:1.25}} .round {{width:45px;height:45px;border:2px solid #00c8ff;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:23px;box-shadow:0 0 12px #00bfff}}
 .feature:nth-child(2) .round {{border-color:#72ff00;box-shadow:0 0 12px #72ff00}} .feature:nth-child(3) .round {{border-color:#00c8ff}}
 .back {{display:inline-flex;align-items:center;gap:15px;border:1px solid #00a7ff;border-radius:6px;padding:11px 20px;color:#fff;text-decoration:none;font-weight:800;font-size:12px}}
-.signature {{float:right;color:#7dff00;font-size:25px;font-style:italic;margin:8px 8px 0 0}}
+.signature {{float:right;color:#7dff00;font-size:25px;font-style:italic;margin:8px 8px 0 0}} .teamaccess{{display:block;clear:both;padding-top:20px;text-align:center;color:#8ea6b3;text-decoration:none;font-size:11px}}
 </style>
 </head>
 <body><div class="app">
@@ -1154,7 +1267,7 @@ h1 {{font-size:27px;font-weight:1000;font-style:italic;margin:0;text-align:cente
 <a class="plan p3" href="{link_plano('5h')}"><div class="clock"></div><div class="info"><div class="hours">5 HORAS</div><div class="desc"><b>Acesso completo</b><br>Redes sociais liberadas<br>(WhatsApp, Instagram, TikTok, etc).</div></div><div class="price">R$ 15,00</div><div class="arrow">›</div></a>
 <a class="plan p4" href="{link_plano('10h')}"><div class="clock"></div><div class="info"><div class="hours">10 HORAS</div><div class="desc"><b>Acesso completo</b><br>Redes sociais liberadas<br>(WhatsApp, Instagram, TikTok, etc).</div></div><div class="price">R$ 20,00</div><div class="arrow">›</div></a>
 <div class="features"><div class="feature"><div class="round">∞</div>Sem cadastro<br>complicado</div><div class="feature"><div class="round">✓</div>Pagamento<br>seguro</div><div class="feature"><div class="round">➤</div>Conecte-se<br>e aproveite</div></div>
-<a class="back" href="javascript:history.back()">‹ &nbsp;&nbsp; VOLTAR</a><div class="signature">Wi-Fi Pix</div>
+<a class="back" href="javascript:history.back()">‹ &nbsp;&nbsp; VOLTAR</a><div class="signature">Wi-Fi Pix</div><a class="teamaccess" href="{link_equipe}">🔒 Acesso da equipe</a>
 </div></div></body></html>
 """
             return pagina_planos, 200
