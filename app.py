@@ -24,10 +24,10 @@ REQUEST_TIMEOUT = 20
 DB_PATH = os.getenv("DB_PATH", "/tmp/mikrotik_pix.db")
 
 PLANOS = {
-    "1h": {"nome": "1 hora", "valor": "5.00", "horas": 1},
-    "2h": {"nome": "2 horas", "valor": "10.00", "horas": 2},
-    "5h": {"nome": "5 horas", "valor": "15.00", "horas": 5},
-    "10h": {"nome": "10 horas", "valor": "20.00", "horas": 10},
+    "30min": {"nome": "30 minutos", "valor": "5.00", "minutos": 30, "horas": 0.5},
+    "2h": {"nome": "2 horas", "valor": "10.00", "minutos": 120, "horas": 2},
+    "3h": {"nome": "3 horas", "valor": "15.00", "minutos": 180, "horas": 3},
+    "5h": {"nome": "5 horas", "valor": "20.00", "minutos": 300, "horas": 5},
 }
 
 # Codigos exclusivos da equipe: cada codigo fica preso ao primeiro MAC.
@@ -64,7 +64,7 @@ def db_inicializar():
                 mac TEXT NOT NULL,
                 ip TEXT NOT NULL,
                 plano TEXT NOT NULL,
-                horas INTEGER NOT NULL,
+                horas REAL NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pendente',
                 criado_em TEXT NOT NULL,
                 confirmado_em TEXT
@@ -1262,10 +1262,10 @@ h1 {{font-size:27px;font-weight:1000;font-style:italic;margin:0;text-align:cente
 <div class="bar"><div class="brand"><span class="wifiicon">◉</span><span>Wi-Fi Pix</span></div><span class="signal">◔</span></div>
 <div class="content">
 <h1>ESCOLHA SEU PLANO</h1><div class="sub">Internet de qualidade para você aproveitar<br>o evento sem limites.</div>
-<a class="plan p1" href="{link_plano('1h')}"><div class="clock"></div><div class="info"><div class="hours">1 HORA</div><div class="speed">1 a 2 Megas</div><div class="desc">Apenas WhatsApp e apps<br>de pagamento.</div></div><div class="price">R$ 5,00</div><div class="arrow">›</div></a>
+<a class="plan p1" href="{link_plano('30min')}"><div class="clock"></div><div class="info"><div class="hours">30 MINUTOS</div><div class="speed">1 a 2 Megas</div><div class="desc">Apenas WhatsApp e apps<br>de pagamento.</div></div><div class="price">R$ 5,00</div><div class="arrow">›</div></a>
 <a class="plan p2" href="{link_plano('2h')}"><div class="clock"></div><div class="info"><div class="hours">2 HORAS</div><div class="speed">1 a 2 Megas</div><div class="desc">Apenas WhatsApp e apps<br>de pagamento.</div></div><div class="price">R$ 10,00</div><div class="arrow">›</div></a>
-<a class="plan p3" href="{link_plano('5h')}"><div class="clock"></div><div class="info"><div class="hours">5 HORAS</div><div class="desc"><b>Acesso completo</b><br>Redes sociais liberadas<br>(WhatsApp, Instagram, TikTok, etc).</div></div><div class="price">R$ 15,00</div><div class="arrow">›</div></a>
-<a class="plan p4" href="{link_plano('10h')}"><div class="clock"></div><div class="info"><div class="hours">10 HORAS</div><div class="desc"><b>Acesso completo</b><br>Redes sociais liberadas<br>(WhatsApp, Instagram, TikTok, etc).</div></div><div class="price">R$ 20,00</div><div class="arrow">›</div></a>
+<a class="plan p3" href="{link_plano('3h')}"><div class="clock"></div><div class="info"><div class="hours">3 HORAS</div><div class="speed">3 a 5 Megas</div><div class="desc"><b>Acesso completo</b><br>Redes sociais liberadas<br>(WhatsApp, Instagram, TikTok, etc).</div></div><div class="price">R$ 15,00</div><div class="arrow">›</div></a>
+<a class="plan p4" href="{link_plano('5h')}"><div class="clock"></div><div class="info"><div class="hours">5 HORAS</div><div class="speed">3 a 5 Megas</div><div class="desc"><b>Acesso completo</b><br>Redes sociais liberadas<br>(WhatsApp, Instagram, TikTok, etc).</div></div><div class="price">R$ 20,00</div><div class="arrow">›</div></a>
 <div class="features"><div class="feature"><div class="round">∞</div>Sem cadastro<br>complicado</div><div class="feature"><div class="round">✓</div>Pagamento<br>seguro</div><div class="feature"><div class="round">➤</div>Conecte-se<br>e aproveite</div></div>
 <a class="back" href="javascript:history.back()">‹ &nbsp;&nbsp; VOLTAR</a><div class="signature">Wi-Fi Pix</div><a class="teamaccess" href="{link_equipe}">🔒 Acesso da equipe</a>
 </div></div></body></html>
