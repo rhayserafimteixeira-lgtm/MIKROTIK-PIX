@@ -347,9 +347,22 @@ def registrar_acesso_temporario(order_id, mac, ip):
             ),
         )
 
+    with db_conectar() as conexao:
+        gravado = conexao.execute(
+            """
+            SELECT order_id, mac, ip, status
+            FROM acessos_temporarios
+            WHERE order_id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+
+    if not gravado or gravado["status"] != "pendente":
+        raise RuntimeError("Falha ao confirmar gravacao do acesso temporario")
+
     print(
-        "ACESSO TEMPORARIO SOLICITADO | "
-        f"MAC={mac} | IP={ip} | ORDER={order_id}",
+        "ACESSO TEMPORARIO SOLICITADO E GRAVADO | "
+        f"MAC={mac} | IP={ip} | ORDER={order_id} | DB={DB_PATH}",
         flush=True,
     )
 
@@ -591,7 +604,36 @@ def health():
     return jsonify({
         "ok": True,
         "servico": "mikrotik-pix",
+        "db_path": DB_PATH,
+        "db_persistente": DB_PATH.startswith("/var/data/"),
     }), 200
+
+
+@app.route("/diagnostico-temporario", methods=["GET"])
+def diagnostico_temporario():
+    """Diagnostico simples da fila de 2 minutos, sem expor token do Mercado Pago."""
+    try:
+        with db_conectar() as conexao:
+            total = conexao.execute(
+                "SELECT COUNT(*) AS total FROM acessos_temporarios"
+            ).fetchone()["total"]
+            pendentes = conexao.execute(
+                "SELECT COUNT(*) AS total FROM acessos_temporarios WHERE status='pendente'"
+            ).fetchone()["total"]
+            confirmadas = conexao.execute(
+                "SELECT COUNT(*) AS total FROM acessos_temporarios WHERE status='confirmada'"
+            ).fetchone()["total"]
+
+        return jsonify({
+            "ok": True,
+            "db_path": DB_PATH,
+            "db_persistente": DB_PATH.startswith("/var/data/"),
+            "total": total,
+            "pendentes": pendentes,
+            "confirmadas": confirmadas,
+        }), 200
+    except Exception as erro:
+        return jsonify({"ok": False, "erro": str(erro)}), 500
 
 
 # =========================================================
@@ -876,12 +918,14 @@ def acesso_temporario_pendente():
         dados = buscar_proximo_acesso_temporario()
 
         if not dados:
-            return jsonify({
+            resposta = jsonify({
                 "ok": True,
                 "pendente": False,
-            }), 200
+            })
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 200
 
-        return jsonify({
+        resposta = jsonify({
             "ok": True,
             "pendente": True,
             "mac": dados["mac"],
@@ -889,7 +933,9 @@ def acesso_temporario_pendente():
             "order_id": dados["order_id"],
             "segundos": 120,
             "rate_limit": "1M/1M",
-        }), 200
+        })
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 200
 
     except Exception as erro:
         print(
