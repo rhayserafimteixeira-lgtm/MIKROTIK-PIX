@@ -21,7 +21,10 @@ REQUEST_TIMEOUT = 20
 
 # SQLite evita perder a liberacao quando o servidor usa mais de um worker.
 # Em hospedagens como Render, /tmp e gravavel.
-DB_PATH = os.getenv("DB_PATH", "/tmp/mikrotik_pix.db")
+DB_PATH = os.getenv(
+    "DB_PATH",
+    "/var/data/mikrotik_pix.db" if os.path.isdir("/var/data") else "/tmp/mikrotik_pix.db",
+)
 
 PLANOS = {
     "30min": {"nome": "30 minutos", "valor": "5.00", "minutos": 30, "horas": 0.5},
@@ -329,7 +332,12 @@ def registrar_acesso_temporario(order_id, mac, ip):
                 criado_em
             )
             VALUES (?, ?, ?, 'pendente', ?)
-            ON CONFLICT(order_id) DO NOTHING
+            ON CONFLICT(order_id) DO UPDATE SET
+                mac = excluded.mac,
+                ip = excluded.ip,
+                status = 'pendente',
+                criado_em = excluded.criado_em,
+                confirmado_em = NULL
             """,
             (
                 order_id,
@@ -1509,7 +1517,7 @@ button{{width:100%;border-radius:14px;padding:14px 10px;border:2px solid;font-si
 </div></div>
 <script>
 function copiarPix(){{const codigo=document.getElementById('pix').value;navigator.clipboard.writeText(codigo).then(function(){{alert('Código PIX copiado!');}});}}
-async function liberarInternetPagamento(){{const botao=document.getElementById('btn-acesso-temporario');const aviso=document.getElementById('aviso-temporario');botao.disabled=true;botao.textContent='LIBERANDO...';try{{window.location.href='{url_acesso_temporario}&modo=pagina';return;const dados=await resposta.json();if(dados.ok&&dados.pago){{aviso.innerHTML='<strong>✓</strong><span>Pagamento já aprovado. Liberando o plano comprado...</span>';botao.textContent='PAGAMENTO APROVADO';return;}}if(!resposta.ok||!dados.ok)throw new Error(dados.erro||'Falha');botao.textContent='2 MINUTOS LIBERADOS';aviso.innerHTML='<strong>✓</strong><span>Abra o aplicativo do banco e conclua o PIX. O acesso temporário será encerrado automaticamente.</span>';}}catch(erro){{botao.disabled=false;botao.textContent='TENTAR LIBERAR 2 MINUTOS NOVAMENTE';aviso.innerHTML='<strong>!</strong><span>Não foi possível solicitar os 2 minutos. Tente novamente.</span>';}}}}
+async function liberarInternetPagamento(){{const botao=document.getElementById('btn-acesso-temporario');const aviso=document.getElementById('aviso-temporario');botao.disabled=true;botao.textContent='LIBERANDO...';try{{const resposta=await fetch('{url_acesso_temporario}',{{method:'GET',cache:'no-store'}});const dados=await resposta.json();if(dados.ok&&dados.pago){{aviso.innerHTML='<strong>✓</strong><span>Pagamento já aprovado. Liberando o plano comprado...</span>';botao.textContent='PAGAMENTO APROVADO';return;}}if(!resposta.ok||!dados.ok)throw new Error(dados.erro||'Falha');botao.textContent='2 MINUTOS SOLICITADOS';aviso.innerHTML='<strong>✓</strong><span>Solicitação enviada. Abra o aplicativo do banco e conclua o PIX. A liberação será feita pelo Wi-Fi Pix.</span>';setTimeout(function(){{botao.disabled=false;botao.textContent='SOLICITAR 2 MINUTOS NOVAMENTE';}},150000);}}catch(erro){{botao.disabled=false;botao.textContent='TENTAR LIBERAR 2 MINUTOS NOVAMENTE';aviso.innerHTML='<strong>!</strong><span>Não foi possível solicitar os 2 minutos. Tente novamente.</span>';}}}}
 async function verificarPagamento(){{try{{const resposta=await fetch('/status-pix/{order_id}',{{cache:'no-store'}});const dados=await resposta.json();const tela=document.getElementById('status-pagamento');if(dados.ok&&dados.pago&&dados.liberada){{tela.textContent='PAGAMENTO APROVADO! INTERNET LIBERADA.';tela.style.color='#63ff00';clearInterval(timerPagamento);}}else if(dados.ok&&dados.pago)tela.textContent='Pagamento aprovado! Liberando internet...';else if(dados.ok)tela.textContent='Aguardando pagamento...';}}catch(erro){{console.log(erro);}}}}
 let timerPagamento=setInterval(verificarPagamento,5000);verificarPagamento();
 </script></body></html>
