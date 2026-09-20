@@ -369,6 +369,52 @@ def registrar_acesso_temporario(order_id, mac, ip):
     return True
 
 
+def verificar_cooldown_acesso_temporario(mac):
+    """
+    Impede o mesmo MAC de receber janelas gratis em sequencia.
+    A contagem comeca quando o MikroTik confirma a liberacao.
+    Sao 2 minutos de acesso + 5 minutos de espera = 7 minutos
+    entre liberacoes gratuitas.
+    """
+    mac = normalizar_mac(mac)
+
+    if not mac:
+        return False, 0
+
+    agora = datetime.now(timezone.utc)
+    intervalo_total = timedelta(minutes=7)
+
+    with db_conectar() as conexao:
+        linha = conexao.execute(
+            """
+            SELECT confirmado_em
+            FROM acessos_temporarios
+            WHERE mac = ?
+              AND status = 'confirmada'
+              AND confirmado_em IS NOT NULL
+            ORDER BY confirmado_em DESC
+            LIMIT 1
+            """,
+            (mac,),
+        ).fetchone()
+
+    if not linha:
+        return False, 0
+
+    try:
+        confirmado_em = datetime.fromisoformat(linha["confirmado_em"])
+    except (TypeError, ValueError):
+        return False, 0
+
+    restante = intervalo_total - (agora - confirmado_em)
+
+    if restante.total_seconds() <= 0:
+        return False, 0
+
+    segundos = int(restante.total_seconds()) + 1
+    return True, segundos
+
+
 def buscar_proximo_acesso_temporario():
     db_limpar_antigas()
 
@@ -873,6 +919,19 @@ def solicitar_acesso_temporario():
                 "erro": "Esta order nao esta mais disponivel para pagamento",
                 "status": status_order,
             }), 409
+
+        em_cooldown, segundos_restantes = verificar_cooldown_acesso_temporario(mac)
+
+        if em_cooldown:
+            minutos_restantes = max(1, (segundos_restantes + 59) // 60)
+            return jsonify({
+                "ok": False,
+                "pago": False,
+                "solicitado": False,
+                "cooldown": True,
+                "segundos_restantes": segundos_restantes,
+                "mensagem": f"Aguarde {minutos_restantes} minuto(s) para solicitar novamente os 2 minutos gratis. O pagamento PIX continua disponivel.",
+            }), 429
 
         registrar_acesso_temporario(
             order_id,
@@ -1563,7 +1622,7 @@ button{{width:100%;border-radius:14px;padding:14px 10px;border:2px solid;font-si
 </div></div>
 <script>
 function copiarPix(){{const codigo=document.getElementById('pix').value;navigator.clipboard.writeText(codigo).then(function(){{alert('Código PIX copiado!');}});}}
-async function liberarInternetPagamento(){{const botao=document.getElementById('btn-acesso-temporario');const aviso=document.getElementById('aviso-temporario');botao.disabled=true;botao.textContent='LIBERANDO...';try{{const resposta=await fetch('{url_acesso_temporario}',{{method:'GET',cache:'no-store'}});const dados=await resposta.json();if(dados.ok&&dados.pago){{aviso.innerHTML='<strong>✓</strong><span>Pagamento já aprovado. Liberando o plano comprado...</span>';botao.textContent='PAGAMENTO APROVADO';return;}}if(!resposta.ok||!dados.ok)throw new Error(dados.erro||'Falha');botao.textContent='2 MINUTOS SOLICITADOS';aviso.innerHTML='<strong>✓</strong><span>Solicitação enviada. Abra o aplicativo do banco e conclua o PIX. A liberação será feita pelo Wi-Fi Pix.</span>';setTimeout(function(){{botao.disabled=false;botao.textContent='SOLICITAR 2 MINUTOS NOVAMENTE';}},150000);}}catch(erro){{botao.disabled=false;botao.textContent='TENTAR LIBERAR 2 MINUTOS NOVAMENTE';aviso.innerHTML='<strong>!</strong><span>Não foi possível solicitar os 2 minutos. Tente novamente.</span>';}}}}
+async function liberarInternetPagamento(){{const botao=document.getElementById('btn-acesso-temporario');const aviso=document.getElementById('aviso-temporario');botao.disabled=true;botao.textContent='LIBERANDO...';try{{const resposta=await fetch('{url_acesso_temporario}',{{method:'GET',cache:'no-store'}});const dados=await resposta.json();if(dados.ok&&dados.pago){{aviso.innerHTML='<strong>✓</strong><span>Pagamento já aprovado. Liberando o plano comprado...</span>';botao.textContent='PAGAMENTO APROVADO';return;}}if(dados.cooldown){{const segundos=Number(dados.segundos_restantes||300);botao.textContent='AGUARDE PARA SOLICITAR NOVAMENTE';aviso.innerHTML='<strong>⏳</strong><span>'+dados.mensagem+'</span>';setTimeout(function(){{botao.disabled=false;botao.textContent='SOLICITAR 2 MINUTOS NOVAMENTE';}},segundos*1000);return;}}if(!resposta.ok||!dados.ok)throw new Error(dados.erro||dados.mensagem||'Falha');botao.textContent='2 MINUTOS SOLICITADOS';aviso.innerHTML='<strong>✓</strong><span>Solicitação enviada. Abra o aplicativo do banco e conclua o PIX. A liberação será feita pelo Wi-Fi Pix.</span>';setTimeout(function(){{botao.disabled=false;botao.textContent='SOLICITAR 2 MINUTOS NOVAMENTE';}},420000);}}catch(erro){{botao.disabled=false;botao.textContent='TENTAR LIBERAR 2 MINUTOS NOVAMENTE';aviso.innerHTML='<strong>!</strong><span>Não foi possível solicitar os 2 minutos. Tente novamente.</span>';}}}}
 async function verificarPagamento(){{try{{const resposta=await fetch('/status-pix/{order_id}',{{cache:'no-store'}});const dados=await resposta.json();const tela=document.getElementById('status-pagamento');if(dados.ok&&dados.pago&&dados.liberada){{tela.textContent='PAGAMENTO APROVADO! INTERNET LIBERADA.';tela.style.color='#63ff00';clearInterval(timerPagamento);}}else if(dados.ok&&dados.pago)tela.textContent='Pagamento aprovado! Liberando internet...';else if(dados.ok)tela.textContent='Aguardando pagamento...';}}catch(erro){{console.log(erro);}}}}
 let timerPagamento=setInterval(verificarPagamento,5000);verificarPagamento();
 </script></body></html>
